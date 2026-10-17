@@ -1,0 +1,1964 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Media Previewer</title>
+<style>
+:root{--bg:#0e0f11;--panel:#17181b;--panel2:#1f2125;--line:#2b2d32;--text:#e6e6e6;--dim:#8b8f98;--accent:#4da3ff;--pin:#b26bff;--sel:#2ecc71;--star:#ffc531;--bad:#ff6b6b;--tw:200px;--side:640px}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:13px/1.4 system-ui,"Segoe UI",sans-serif;display:flex;flex-direction:column;overflow:hidden}
+button,select,input{font:inherit;color:var(--text)}
+.bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 10px;background:var(--panel);border-bottom:1px solid var(--line)}
+.btn{background:var(--panel2);border:1px solid var(--line);padding:5px 10px;border-radius:6px;cursor:pointer;white-space:nowrap;user-select:none}
+.btn:hover{border-color:#5a5e66}
+.btn:disabled{opacity:.4;cursor:default}
+.btn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.pinon{background:var(--pin);border-color:var(--pin);color:#fff}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.btn.good{background:var(--sel);border-color:var(--sel);color:#04170b;font-weight:600}
+.btn.danger:hover{border-color:var(--bad);color:var(--bad)}
+.btn.sm{padding:2px 7px;font-size:12px}
+select,input[type=search],input[type=number],input[type=text]{background:#000;border:1px solid var(--line);border-radius:6px;padding:5px 8px}
+input[type=search]{width:200px}
+input[type=number]{width:62px}
+input[type=color]{background:#000;border:1px solid var(--line);border-radius:6px;width:40px;height:30px;padding:2px}
+.sep{width:1px;height:22px;background:var(--line);margin:0 3px}
+.dim{color:var(--dim)}
+#stats{margin-left:auto;color:var(--dim);white-space:nowrap}
+#selBar{display:none;gap:6px;align-items:center;padding:6px 10px;background:#11261a;border-bottom:1px solid #1d4a2f}
+#selBar b{color:var(--sel)}
+main{flex:1;display:flex;min-height:0}
+#grid{width:var(--side);flex-shrink:0;overflow-y:auto;padding:10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--tw),1fr));grid-auto-rows:max-content;gap:10px;align-content:start;outline:none}
+#split{width:6px;cursor:col-resize;background:var(--line);flex-shrink:0;touch-action:none}
+#split:hover,#split.drag{background:var(--accent)}
+.item{background:var(--panel);border:2px solid transparent;border-radius:8px;cursor:pointer;overflow:hidden;position:relative}
+.item:hover{border-color:#454850}
+.item.active{border-color:var(--accent);box-shadow:0 0 0 3px rgba(77,163,255,.25)}
+.item.pinned{border-color:var(--pin)}
+.item.sel{border-color:var(--sel)}
+.item.sel::after{content:'✓';position:absolute;left:6px;bottom:6px;background:var(--sel);color:#04170b;font-weight:700;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;z-index:3}
+.thumb{width:100%;aspect-ratio:16/10;background:#000;position:relative;overflow:hidden}
+.thumb img,.thumb video{width:100%;height:100%;object-fit:cover;display:block}
+.tag{position:absolute;background:rgba(0,0,0,.75);font-size:11px;padding:2px 6px;border-radius:4px;z-index:1;pointer-events:none;font-variant-numeric:tabular-nums}
+.tag:empty{display:none}
+.tag.type{top:6px;left:6px}
+.tag.dur{bottom:6px;right:6px}
+.tag.stars{top:6px;right:6px;color:var(--star);letter-spacing:1px}
+.scrub{position:absolute;left:0;bottom:0;height:3px;background:var(--accent);width:0;z-index:2;pointer-events:none}
+.name{font-size:12px;line-height:1.3;padding:6px 8px;word-break:break-word;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;min-height:calc(1.3em*2 + 12px)}
+.item.active .name{color:var(--accent);font-weight:600}
+.meta{display:none}
+#grid.list{grid-template-columns:1fr;gap:4px}
+#grid.list .item{display:flex;align-items:center;gap:10px;border-radius:6px}
+#grid.list .thumb{width:120px;flex-shrink:0}
+#grid.list .tag.type{display:none}
+#grid.list .item.sel::after{bottom:auto;top:6px}
+#grid.list .name{flex:1;min-height:0;-webkit-line-clamp:2}
+#grid.list .meta{display:block;color:var(--dim);font-size:11px;text-align:right;padding-right:10px;white-space:nowrap}
+#viewer{flex:1;display:flex;flex-direction:column;min-width:0;background:#000}
+#stage{flex:1;display:flex;min-height:0;position:relative}
+#panes{flex:1;display:flex;min-width:0}
+.pane{flex:1;position:relative;overflow:hidden;min-width:0}
+.pane+.pane{border-left:2px solid var(--pin)}
+.pane video{width:100%;height:100%;object-fit:contain;display:block;background:#000}
+.pane img{position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;user-select:none;-webkit-user-drag:none;visibility:hidden}
+.pane.zoomable{cursor:grab}
+.pane.zoomable.panning{cursor:grabbing}
+.pane .label{position:absolute;top:8px;left:8px;background:rgba(0,0,0,.75);padding:3px 8px;border-radius:4px;font-size:12px;z-index:2;max-width:80%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+.pane .label.pin{color:#d7b3ff}
+.empty{margin:auto;color:var(--dim);text-align:center;line-height:1.9;padding:20px}
+#infoBox{position:absolute;right:10px;top:10px;background:rgba(15,16,18,.94);border:1px solid var(--line);border-radius:8px;padding:8px 10px;z-index:5;font-size:12px;display:none;max-width:380px}
+#infoBox.show{display:block}
+#infoBox table{border-collapse:collapse}
+#infoBox td{padding:2px 6px;vertical-align:top;word-break:break-word}
+#infoBox td:first-child{color:var(--dim);white-space:nowrap}
+#status{display:flex;align-items:center;gap:14px;padding:6px 12px;background:var(--panel);border-top:1px solid var(--line);min-width:0}
+#statusText{flex:1;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#rate span{cursor:pointer;color:#444;font-size:18px;line-height:1}
+#rate span.on{color:var(--star)}
+#zoomLbl{color:var(--dim);font-variant-numeric:tabular-nums}
+#drop{position:fixed;inset:0;background:rgba(77,163,255,.15);border:3px dashed var(--accent);display:none;align-items:center;justify-content:center;font-size:24px;pointer-events:none;z-index:50}
+#toast{position:fixed;left:50%;bottom:56px;transform:translateX(-50%);background:#222;border:1px solid var(--line);padding:8px 14px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:200;max-width:80vw;text-align:center}
+#toast.show{opacity:1}
+#help{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:70}
+#help.show{display:flex}
+#help .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 22px;max-width:820px;max-height:88vh;overflow:auto}
+#help h2{margin:0 0 10px;font-size:16px}
+#help h3{margin:14px 0 6px;font-size:13px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+#help .cols{display:grid;grid-template-columns:1fr 1fr;gap:0 24px}
+#help .row{display:flex;justify-content:space-between;gap:12px;padding:3px 0;border-bottom:1px solid #222;margin:0}
+kbd{background:#000;border:1px solid var(--line);border-radius:4px;padding:0 6px;font:12px ui-monospace,Consolas,monospace;white-space:nowrap}
+/* editor */
+#editor{position:fixed;inset:0;background:var(--bg);z-index:40;display:flex;flex-direction:column}
+#editor[hidden]{display:none}
+#edTitle{max-width:40vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#edBody{flex:1;display:flex;min-height:0}
+#edMain{flex:1;display:flex;flex-direction:column;min-width:0}
+#edStage{flex:1;position:relative;background:repeating-conic-gradient(#161616 0 25%,#101010 0 50%) 0 0/24px 24px;min-height:0;overflow:hidden}
+#edCanvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+#edTransport{display:flex;gap:8px;align-items:center;padding:8px 12px;background:var(--panel);border-top:1px solid var(--line)}
+#edTransport[hidden]{display:none}
+#edTime{font-variant-numeric:tabular-nums;color:var(--dim);white-space:nowrap}
+#tlWrap{position:relative;flex:1;display:flex;align-items:center}
+#edTl{width:100%}
+#tlRange{position:absolute;top:50%;height:8px;margin-top:-4px;background:rgba(77,163,255,.45);border-radius:3px;pointer-events:none}
+#edSide{width:330px;flex-shrink:0;overflow-y:auto;background:var(--panel);border-left:1px solid var(--line);padding:0 14px 16px}
+.sec{padding:12px 0;border-bottom:1px solid var(--line)}
+.sec h4{margin:0 0 8px;font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--dim);font-weight:600}
+.srow{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:6px 0}
+.seg{display:flex;flex-wrap:wrap;gap:4px}
+.hint{color:var(--dim);font-size:12px;margin:6px 0}
+.slider{display:grid;grid-template-columns:78px 1fr 40px;align-items:center;gap:6px;margin:3px 0}
+.slider span:last-child{text-align:right;color:var(--dim);font-variant-numeric:tabular-nums}
+.clip{display:flex;align-items:center;gap:5px;padding:5px 6px;border:1px solid var(--line);border-radius:6px;margin:4px 0;cursor:pointer;background:var(--panel2)}
+.clip.cur{border-color:var(--accent)}
+.clip .cn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.clip .cl{font-variant-numeric:tabular-nums}
+#edFoot{border-top:1px solid var(--line);border-bottom:0}
+#edProg{position:absolute;inset:0;background:rgba(0,0,0,.8);display:none;align-items:center;justify-content:center;flex-direction:column;gap:12px;z-index:5;text-align:center;padding:20px}
+#edProg.show{display:flex}
+.pbar{width:min(460px,80%);height:8px;background:#222;border-radius:4px;overflow:hidden}
+.pbar>div{height:100%;background:var(--accent);width:0}
+dialog{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:16px 20px;width:min(760px,94vw)}
+dialog::backdrop{background:rgba(0,0,0,.6)}
+dialog h3{margin:0 0 10px}
+.tbl{max-height:320px;overflow:auto;border:1px solid var(--line);border-radius:6px;margin:10px 0}
+.tbl table{border-collapse:collapse;width:100%;font-size:12px}
+.tbl td{padding:4px 8px;border-bottom:1px solid #222;word-break:break-all}
+.tbl td.arrow{color:var(--dim);width:20px}
+.tbl tr.bad td{color:var(--bad)}
+.tbl tr.same td{color:var(--dim)}
+@media (max-width:800px){main{flex-direction:column}#grid{width:100%;height:42%}#split{display:none}#help .cols{grid-template-columns:1fr}#edBody{flex-direction:column}#edSide{width:100%;height:45%;border-left:0;border-top:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<div class="bar">
+  <button class="btn primary" id="openBtn" title="Open a folder">📁 Load folder</button>
+  <input id="picker" type="file" webkitdirectory multiple hidden>
+  <button class="btn" id="rescanBtn" title="Rescan folder for new/changed files (R)">⟳ Rescan</button>
+  <span class="sep"></span>
+  <input id="filter" type="search" placeholder="Filter by name…  ( / )">
+  <select id="kind"><option value="all">All types</option><option value="video">Videos</option><option value="image">Images</option></select>
+  <select id="folder" title="Subfolder"><option value="">All folders</option></select>
+  <select id="minRate" title="Rating filter">
+    <option value="0">Any rating</option><option value="1">★ 1+</option><option value="2">★ 2+</option><option value="3">★ 3+</option><option value="4">★ 4+</option><option value="5">★ 5</option><option value="-1">Unrated</option>
+  </select>
+  <select id="sort" title="Sort by">
+    <option value="name">Sort: Name</option><option value="mtime">Sort: Date modified</option><option value="size">Sort: Size</option><option value="dur">Sort: Duration</option><option value="res">Sort: Resolution</option><option value="type">Sort: Type</option><option value="rating">Sort: Rating</option>
+  </select>
+  <button class="btn" id="dirBtn" title="Sort direction"></button>
+  <span class="sep"></span>
+  <button class="btn" id="viewBtn" title="Grid / list view (G)"></button>
+  <label class="dim">Size <input id="size" type="range" min="100" max="420"></label>
+  <select id="hover" title="Thumbnail hover behaviour">
+    <option value="scrub">Hover: scrub</option><option value="play">Hover: play</option><option value="off">Hover: off</option>
+  </select>
+  <button class="btn" id="copyListBtn" title="Copy names of all visible files">⧉ Copy list</button>
+  <span id="stats"></span>
+  <button class="btn" id="helpBtn" title="Keyboard shortcuts & tips (?)">?</button>
+</div>
+<div id="selBar" class="bar">
+  <b id="selCount"></b><span class="dim">Ctrl+click to add · Shift+click for a range · Ctrl+A for all</span>
+  <span class="sep"></span>
+  <button class="btn" id="joinBtn" title="Join the selected clips (and images) into one video">🎬 Join as video</button>
+  <button class="btn" id="stitchBtn" title="Combine the selected images into one image">▦ Stitch images</button>
+  <button class="btn" id="selRenameBtn" title="Batch rename (F2)">✎ Rename</button>
+  <button class="btn danger" id="selRejectBtn" title="Move to _rejected folder (Delete)">🗑 Reject</button>
+  <button class="btn" id="selClearBtn" title="Clear selection (Esc)">✕ Clear</button>
+</div>
+<main>
+  <div id="grid" tabindex="0"></div>
+  <div id="split" title="Drag to resize"></div>
+  <div id="viewer">
+    <div class="bar" id="vbar">
+      <button class="btn" id="prevBtn" title="Previous (←)">◀</button>
+      <button class="btn" id="nextBtn" title="Next (→)">▶</button>
+      <button class="btn good" id="editBtn" title="Open in editor — crop, trim, remove watermark… (E)">✂ Edit</button>
+      <span class="sep"></span>
+      <button class="btn" id="slideBtn" title="Slideshow (P)">⏵ Slideshow</button>
+      <input id="slideSec" type="number" min="1" max="60" title="Seconds per image"><span class="dim">s</span>
+      <button class="btn" id="pinBtn" title="Pin current for side-by-side compare (C)">⧉ Compare</button>
+      <span class="sep"></span>
+      <button class="btn" id="loopBtn" title="Loop video (O)">⟲ Loop</button>
+      <button class="btn" id="nextEndBtn" title="Auto-advance when video ends (N)">⤼ Auto-next</button>
+      <button class="btn" id="muteBtn" title="Mute (M)"></button>
+      <select id="speed" title="Playback speed ([ / ])">
+        <option>0.25</option><option>0.5</option><option>0.75</option><option selected>1</option><option>1.25</option><option>1.5</option><option>2</option><option>3</option><option>4</option>
+      </select>
+      <button class="btn" id="fBackBtn" title="Previous frame (,)">⏮︎</button>
+      <button class="btn" id="fFwdBtn" title="Next frame (.)">⏭︎</button>
+      <button class="btn" id="snapBtn" title="Save current frame as PNG (S) · Shift+S copies it">📷</button>
+      <span class="sep"></span>
+      <button class="btn" id="renameBtn" title="Rename (F2)">✎</button>
+      <button class="btn danger" id="rejectBtn" title="Move to _rejected folder (Delete)">🗑</button>
+      <button class="btn" id="copyBtn" title="Copy file name (Y)">⧉</button>
+      <button class="btn" id="infoBtn" title="Info panel (I)">ⓘ</button>
+      <button class="btn" id="fsBtn" title="Fullscreen (F)">⛶</button>
+    </div>
+    <div id="stage">
+      <div id="panes"><div class="empty">Click <b>Load folder</b> or drag a folder here.<br>Press <kbd>?</kbd> for shortcuts and tips.</div></div>
+      <div id="infoBox"></div>
+    </div>
+    <div id="status"><span id="statusText"></span><span id="zoomLbl"></span><span id="rate" title="Rate (1–5, 0 clears)"></span></div>
+  </div>
+</main>
+
+<!-- ============ EDITOR ============ -->
+<div id="editor" hidden>
+  <div class="bar">
+    <b id="edTitle"></b>
+    <span class="sep"></span>
+    <span id="edTopTools" class="seg"></span>
+    <span style="margin-left:auto" class="dim" id="edInfo"></span>
+    <span class="sep"></span>
+    <button class="btn" id="edClose" title="Close editor (Esc)">✕ Close</button>
+  </div>
+  <div id="edBody">
+    <div id="edMain">
+      <div id="edStage">
+        <canvas id="edCanvas"></canvas>
+        <div id="edProg"><div id="edProgText">Working…</div><div class="pbar"><div id="edProgBar"></div></div><div class="dim" id="edProgSub"></div><button class="btn" id="edCancel">Cancel</button></div>
+      </div>
+      <div id="edTransport" hidden>
+        <button class="btn" id="edPlay" title="Play / pause (Space)">▶</button>
+        <button class="btn sm" id="edToIn" title="Go to In (Home)">⇤</button>
+        <span id="edTime"></span>
+        <div id="tlWrap"><input type="range" id="edTl" min="0" step="0.01" value="0"><div id="tlRange"></div></div>
+        <button class="btn sm" id="edToOut" title="Go to Out (End)">⇥</button>
+        <button class="btn" id="edSetIn" title="Set In at playhead (I)">[ Set In</button>
+        <button class="btn" id="edSetOut" title="Set Out at playhead (O)">Set Out ]</button>
+      </div>
+    </div>
+    <div id="edSide"></div>
+  </div>
+  <div class="bar" id="edFoot"></div>
+</div>
+
+<!-- ============ DIALOGS ============ -->
+<dialog id="dlgRename">
+  <h3 id="rnTitle">Rename</h3>
+  <div class="srow"><label style="width:64px">Name</label><input type="text" id="rnPat" style="flex:1" spellcheck="false"></div>
+  <div class="hint">Tokens: <kbd>{name}</kbd> current name · <kbd>{n}</kbd> number · <kbd>{date}</kbd> modified date · <kbd>{folder}</kbd> folder. The extension is kept.</div>
+  <div class="srow"><label style="width:64px">Find</label><input type="text" id="rnFind" spellcheck="false"><label>Replace with</label><input type="text" id="rnRep" spellcheck="false"></div>
+  <div class="srow"><label style="width:64px">Start #</label><input type="number" id="rnStart" value="1"><label>Digits</label><input type="number" id="rnPad" value="2" min="1" max="6">
+    <label>Case</label><select id="rnCase"><option value="">Keep</option><option value="lower">lower</option><option value="upper">UPPER</option><option value="title">Title Case</option></select>
+    <label>Spaces</label><select id="rnSpace"><option value="">Keep</option><option value="_">→ _</option><option value="-">→ -</option><option value="none">Remove</option></select></div>
+  <div class="tbl"><table id="rnTbl"></table></div>
+  <div class="srow" style="justify-content:flex-end"><span id="rnMsg" class="dim" style="margin-right:auto"></span><button class="btn" id="rnCancel">Cancel</button><button class="btn primary" id="rnApply">Rename</button></div>
+</dialog>
+
+<dialog id="dlgStitch">
+  <h3>Stitch images</h3>
+  <div class="srow"><label style="width:70px">Layout</label>
+    <select id="stLayout"><option value="h">Side by side (horizontal)</option><option value="v">Stacked (vertical)</option><option value="g">Grid</option></select>
+    <label>Columns</label><input type="number" id="stCols" value="2" min="1" max="20"></div>
+  <div class="srow"><label style="width:70px">Gap</label><input type="number" id="stGap" value="0" min="0" max="200"> <span class="dim">px</span>
+    <label>Background</label><input type="color" id="stBg" value="#000000"></div>
+  <div class="hint">Images are scaled to the same height (horizontal), width (vertical) or cell size (grid). The result opens in the editor so you can crop or adjust before saving.</div>
+  <div class="srow" style="justify-content:flex-end"><button class="btn" id="stCancel">Cancel</button><button class="btn primary" id="stGo">Stitch</button></div>
+</dialog>
+
+<div id="drop">Drop folder or files</div>
+<div id="toast"></div>
+<div id="help"><div class="card">
+  <h2>Shortcuts &amp; tips</h2>
+  <h3>Browse</h3><div class="cols" id="helpRows"></div>
+  <h3>Editor</h3><div class="cols" id="helpEdRows"></div>
+  <p class="dim" style="margin:14px 0 0">Renaming, rejecting and “Save to folder” need the folder opened with <b>Load folder</b> (or dragged in) in Chrome or Edge — the browser asks once for edit permission. Rejected files go to a <b>_rejected</b> subfolder (nothing is deleted). Ratings are saved in this browser.</p>
+</div></div>
+
+<script>
+'use strict';
+const IMG = /\.(jpe?g|jfif|png|gif|webp|bmp|svg|avif|ico)$/i;
+const VID = /\.(mp4|webm|mov|m4v|ogv|mkv)$/i;
+const $ = id => document.getElementById(id);
+const root = document.documentElement, grid = $('grid'), panes = $('panes');
+const coll = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const once = (el, ev) => new Promise(r => el.addEventListener(ev, r, { once: true }));
+const nextFrame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+const rvfc = (v, cb) => v.requestVideoFrameCallback ? v.requestVideoFrameCallback(cb) : requestAnimationFrame(cb);
+
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('mp-' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('mp-' + k, JSON.stringify(v)); } catch {} },
+};
+const prefs = Object.assign({ tw: 200, side: 640, sort: 'name', dir: 1, view: 'grid', hover: 'scrub', muted: true, vol: 1,
+  loop: true, autonext: false, speed: 1, slideSec: 4, info: false, kind: 'all', minRate: 0 }, store.get('prefs', {}));
+const savePrefs = () => store.set('prefs', prefs);
+const ratings = store.get('ratings', {});
+
+let all = [], shown = [], cur = -1, pinned = null, dirHandle = null, slideOn = false, slideTimer = null;
+const sel = new Set();
+
+// ---------- formatting ----------
+const stem = n => n.replace(/\.[^.]+$/, '');
+const extOf = n => (n.match(/\.([^.]+)$/) || [, ''])[1];
+const ext = n => extOf(n).toUpperCase();
+const fmtSize = b => b >= 1073741824 ? (b / 1073741824).toFixed(2) + ' GB' : b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB';
+const fmtDur = s => { if (!isFinite(s)) return ''; s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = String(s % 60).padStart(2, '0'); return h ? `${h}:${String(m).padStart(2, '0')}:${x}` : `${m}:${x}`; };
+const fmtT = s => { if (!isFinite(s)) s = 0; const m = Math.floor(s / 60), x = (s % 60).toFixed(2).padStart(5, '0'); return `${m}:${x}`; };
+const fmtDate = t => new Date(t).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+const isoDate = t => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const gcd = (a, b) => b ? gcd(b, a % b) : a;
+const aspect = (w, h) => { const g = gcd(w, h); return `${w / g}:${h / g}`; };
+
+let toastT;
+function toast(msg, ms = 1800) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), ms); }
+async function copyText(s) {
+  try { await navigator.clipboard.writeText(s); }
+  catch { const ta = document.createElement('textarea'); ta.value = s; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
+}
+function download(blob, name) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+// ---------- ratings ----------
+const rkey = f => f.name + '|' + f.size;
+const rate = f => ratings[rkey(f)] || 0;
+function setRating(f, n) {
+  if (!f) return;
+  if (n) ratings[rkey(f)] = n; else delete ratings[rkey(f)];
+  store.set('ratings', ratings);
+  updateCard(f); updateStatus();
+  toast(n ? '★'.repeat(n) : 'Rating cleared');
+}
+function moveRating(f, newPath, newSize = f.size) {
+  const r = rate(f); if (!r) return;
+  delete ratings[rkey(f)]; ratings[newPath + '|' + newSize] = r; store.set('ratings', ratings);
+}
+
+// ---------- loading ----------
+function load(files, prefer) {
+  const prevName = prefer || shown[cur]?.name;
+  all.forEach(f => URL.revokeObjectURL(f.url));
+  io.disconnect(); probeQ = []; sel.clear();
+  all = [...files].filter(f => IMG.test(f.name) || VID.test(f.name)).map(file => {
+    const name = file._rel || file.webkitRelativePath || file.name;
+    const parts = name.split('/'), base = parts.pop();
+    const f = { file, name, base, folder: parts.join('/'), type: VID.test(file.name) ? 'video' : 'image',
+      url: URL.createObjectURL(file), size: file.size, mtime: file.lastModified, dur: null, w: 0, h: 0,
+      _handle: file._handle || null, _parent: file._parent || null };
+    createCard(f);
+    return f;
+  });
+  const folders = [...new Set(all.map(f => f.folder))].sort(coll.compare);
+  const fsel = $('folder'), keepFolder = fsel.value;
+  fsel.innerHTML = '<option value="">All folders</option>';
+  folders.forEach(d => fsel.add(new Option(d || '(root)', d)));
+  fsel.value = folders.includes(keepFolder) ? keepFolder : '';
+  fsel.style.display = folders.length > 1 ? '' : 'none';
+  if (pinned) pinned = all.find(f => f.name === pinned.name) || null;
+  cur = -1;
+  render();
+  const i = shown.findIndex(f => f.name === prevName);
+  select(i >= 0 ? i : 0);
+  updateSel(); syncButtons();
+  probeAll();
+  if (!all.length) clearStage('No images or videos found in that folder.');
+}
+
+async function walkHandle(h, path, out) {
+  for await (const e of h.values()) {
+    const p = path + '/' + e.name;
+    if (e.kind === 'directory') { if (e.name !== '_rejected') await walkHandle(e, p, out); }
+    else if (IMG.test(e.name) || VID.test(e.name)) {
+      const f = await e.getFile(); f._rel = p; f._handle = e; f._parent = h; out.push(f);
+    }
+  }
+}
+async function loadHandle(prefer) {
+  const out = []; await walkHandle(dirHandle, dirHandle.name, out); load(out, prefer);
+}
+async function walkEntry(entry, out) {
+  if (entry.isFile) return new Promise(r => entry.file(f => { f._rel = entry.fullPath.slice(1); out.push(f); r(); }, r));
+  if (entry.name === '_rejected') return;
+  const reader = entry.createReader(); let batch;
+  do { batch = await new Promise(r => reader.readEntries(r, () => r([]))); for (const en of batch) await walkEntry(en, out); } while (batch.length);
+}
+
+// ---------- metadata probing ----------
+let probeQ = [], probing = 0;
+function probeAll() { probeQ = all.filter(f => f.dur === null && f.type === 'video').concat(all.filter(f => f.type === 'image' && !f.w)); pump(); }
+function pump() {
+  while (probing < 3 && probeQ.length) {
+    const f = probeQ.shift(); probing++;
+    const finish = () => {
+      probing--; updateCard(f); if (f === shown[cur]) updateStatus(); pump();
+      if (!probing && !probeQ.length && ['dur', 'res'].includes(prefs.sort)) render();
+    };
+    if (f.type === 'video') {
+      const v = document.createElement('video'); v.preload = 'metadata'; v.muted = true;
+      v.onloadedmetadata = () => { f.dur = v.duration; f.w = v.videoWidth; f.h = v.videoHeight; v.removeAttribute('src'); v.load(); finish(); };
+      v.onerror = () => { f.dur = 0; finish(); };
+      v.src = f.url;
+    } else {
+      const i = new Image();
+      i.onload = () => { f.w = i.naturalWidth; f.h = i.naturalHeight; i.src = ''; finish(); };
+      i.onerror = finish; i.src = f.url;
+    }
+  }
+}
+function ensureMeta(f) {
+  if (f.w && (f.type === 'image' || f.dur != null)) return Promise.resolve();
+  return new Promise(res => {
+    if (f.type === 'video') {
+      const v = document.createElement('video'); v.preload = 'metadata'; v.muted = true;
+      v.onloadedmetadata = () => { f.dur = v.duration; f.w = v.videoWidth; f.h = v.videoHeight; res(); };
+      v.onerror = () => { f.dur = f.dur || 0; res(); };
+      v.src = f.url;
+    } else loadImg(f.url).then(i => { f.w = i.naturalWidth || 1024; f.h = i.naturalHeight || 1024; res(); }, res);
+  });
+}
+
+// ---------- cards ----------
+const io = new IntersectionObserver(entries => entries.forEach(e => {
+  if (!e.isIntersecting) return;
+  const el = e.target, f = el._f; io.unobserve(el);
+  const t = el.querySelector('.thumb');
+  if (f.type === 'image') {
+    const img = new Image(); img.decoding = 'async'; img.src = f.url;
+    img.onload = () => { if (!f.w) { f.w = img.naturalWidth; f.h = img.naturalHeight; updateCard(f); } };
+    t.prepend(img);
+  } else {
+    const v = document.createElement('video');
+    v.src = f.url + '#t=0.5'; v.muted = true; v.preload = 'metadata'; v.loop = true; v.playsInline = true;
+    v.onloadedmetadata = () => { if (f.dur === null) { f.dur = v.duration; f.w = v.videoWidth; f.h = v.videoHeight; updateCard(f); } };
+    t.prepend(v);
+  }
+}), { root: grid, rootMargin: '300px' });
+
+function createCard(f) {
+  const el = document.createElement('div');
+  el.className = 'item'; el.title = f.name; el._f = f; f.el = el;
+  el.innerHTML = `<div class="thumb"><span class="tag type">${f.type === 'video' ? '▶ VIDEO' : 'IMG'}</span><span class="tag stars"></span><span class="tag dur"></span><div class="scrub"></div></div><div class="name"></div><div class="meta"></div>`;
+  el.querySelector('.name').textContent = stem(f.base);
+  el.onclick = e => cardClick(f, e);
+  el.ondblclick = e => { if (e.ctrlKey || e.shiftKey || e.metaKey) return; select(shown.indexOf(f)); toggleFs(); };
+  const thumb = el.querySelector('.thumb'), bar = el.querySelector('.scrub');
+  el.onmouseenter = () => { const v = thumb.querySelector('video'); if (v && prefs.hover === 'play') v.play().catch(() => {}); };
+  el.onmousemove = e => {
+    const v = thumb.querySelector('video');
+    if (!v || prefs.hover !== 'scrub' || !v.duration) return;
+    const r = thumb.getBoundingClientRect(), p = clamp((e.clientX - r.left) / r.width, 0, 1);
+    v.currentTime = p * v.duration; bar.style.width = p * 100 + '%';
+  };
+  el.onmouseleave = () => { const v = thumb.querySelector('video'); if (v) v.pause(); bar.style.width = 0; };
+  updateCard(f);
+  io.observe(el);
+}
+
+function updateCard(f) {
+  if (!f.el) return;
+  const r = rate(f);
+  f.el.querySelector('.stars').textContent = r ? '★'.repeat(r) : '';
+  f.el.querySelector('.dur').textContent = f.type === 'video' ? (f.dur ? fmtDur(f.dur) : '') : (f.w ? `${f.w}×${f.h}` : '');
+  f.el.querySelector('.meta').textContent = [ext(f.base), f.w ? `${f.w}×${f.h}` : '', f.dur ? fmtDur(f.dur) : '', fmtSize(f.size), fmtDate(f.mtime)].filter(Boolean).join('  ·  ');
+}
+
+// ---------- multi-selection ----------
+function cardClick(f, e) {
+  const i = shown.indexOf(f);
+  if (e.ctrlKey || e.metaKey) {
+    if (!sel.size && shown[cur] && shown[cur] !== f) sel.add(shown[cur]);
+    sel.has(f) ? sel.delete(f) : sel.add(f);
+    updateSel(); select(i, false); return;
+  }
+  if (e.shiftKey && cur >= 0) {
+    const a = Math.min(cur, i), b = Math.max(cur, i);
+    for (let k = a; k <= b; k++) sel.add(shown[k]);
+    updateSel(); select(i, false); return;
+  }
+  if (sel.size) { sel.clear(); updateSel(); }
+  select(i);
+}
+function updateSel() {
+  all.forEach(f => f.el.classList.toggle('sel', sel.has(f)));
+  $('selBar').style.display = sel.size ? 'flex' : 'none';
+  $('selCount').textContent = `${sel.size} selected`;
+  $('stitchBtn').disabled = [...sel].filter(f => f.type === 'image').length < 2;
+}
+function targets() {
+  if (sel.size) return shown.filter(f => sel.has(f)).concat([...sel].filter(f => !shown.includes(f)));
+  return shown[cur] ? [shown[cur]] : [];
+}
+
+// ---------- filter / sort / render ----------
+const sorters = {
+  name: (a, b) => coll.compare(a.name, b.name),
+  mtime: (a, b) => a.mtime - b.mtime,
+  size: (a, b) => a.size - b.size,
+  dur: (a, b) => (a.dur ?? -1) - (b.dur ?? -1),
+  res: (a, b) => a.w * a.h - b.w * b.h,
+  type: (a, b) => a.type.localeCompare(b.type),
+  rating: (a, b) => rate(a) - rate(b),
+};
+function render() {
+  const curItem = shown[cur];
+  const terms = $('filter').value.toLowerCase().split(/\s+/).filter(Boolean);
+  const fold = $('folder').value, mr = prefs.minRate;
+  shown = all.filter(f =>
+    (prefs.kind === 'all' || f.type === prefs.kind) &&
+    (!fold || f.folder === fold || f.folder.startsWith(fold + '/')) &&
+    (mr === 0 || (mr < 0 ? !rate(f) : rate(f) >= mr)) &&
+    terms.every(t => f.name.toLowerCase().includes(t)));
+  shown.sort((a, b) => (sorters[prefs.sort](a, b) || coll.compare(a.name, b.name)) * prefs.dir);
+  grid.replaceChildren(...shown.map(f => f.el));
+  const vids = shown.filter(f => f.type === 'video').length;
+  $('stats').textContent = all.length
+    ? `${shown.length}/${all.length} · ${vids} video · ${shown.length - vids} img · ${fmtSize(shown.reduce((s, f) => s + f.size, 0))}` : '';
+  cur = curItem ? shown.indexOf(curItem) : -1;
+  if (cur < 0 && all.length) { shown.length ? select(0) : clearStage('No files match the filters.'); }
+}
+
+function clearStage(msg) {
+  cur = -1; stopSlideTimer();
+  panes.innerHTML = `<div class="empty">${msg}</div>`;
+  $('zoomLbl').textContent = ''; updateStatus();
+}
+
+// ---------- selection & viewer ----------
+function select(i, scroll = true) {
+  if (!shown.length) return;
+  cur = (i + shown.length) % shown.length;
+  grid.querySelector('.item.active')?.classList.remove('active');
+  const f = shown[cur];
+  f.el.classList.add('active');
+  if (scroll) f.el.scrollIntoView({ block: 'nearest' });
+  showStage();
+  const n = shown[(cur + 1) % shown.length];
+  if (n?.type === 'image') new Image().src = n.url;
+}
+
+function mainPane() { return panes.querySelector('.pane.main'); }
+function mainMedia() { return mainPane()?.querySelector('video, img'); }
+function mainVideo() { const m = mainMedia(); return m?.tagName === 'VIDEO' ? m : null; }
+function pauseMain() { panes.querySelectorAll('video').forEach(v => v.pause()); stopSlideTimer(); }
+
+function showStage() {
+  const f = shown[cur];
+  panes.innerHTML = ''; $('zoomLbl').textContent = '';
+  grid.querySelectorAll('.item.pinned').forEach(e => e.classList.remove('pinned'));
+  if (pinned && pinned !== f && all.includes(pinned)) {
+    pinned.el.classList.add('pinned');
+    panes.appendChild(makePane(pinned, false));
+  }
+  panes.appendChild(makePane(f, true));
+  if (pinned) syncVideos();
+  updateStatus(); restartSlide();
+}
+
+function makePane(f, isMain) {
+  const pane = document.createElement('div');
+  pane.className = 'pane' + (isMain ? ' main' : '');
+  if ((pinned && pinned !== f) || !isMain) {
+    const lb = document.createElement('div');
+    lb.className = 'label' + (isMain ? '' : ' pin');
+    lb.textContent = (isMain ? '' : '📌 ') + f.base;
+    pane.appendChild(lb);
+  }
+  if (f.type === 'video') {
+    const v = document.createElement('video');
+    v.src = f.url; v.controls = true; v.autoplay = true; v.playsInline = true;
+    v.muted = isMain ? prefs.muted : true; v.volume = prefs.vol;
+    v.playbackRate = prefs.speed; v.defaultPlaybackRate = prefs.speed;
+    v.loop = isMain ? prefs.loop && !prefs.autonext && !slideOn : true;
+    v.onloadedmetadata = () => { f.dur = v.duration; f.w = v.videoWidth; f.h = v.videoHeight; updateCard(f); if (isMain) updateStatus(); };
+    if (isMain) {
+      v.onended = () => { if (prefs.autonext || slideOn) select(cur + 1); };
+      v.onvolumechange = () => { prefs.muted = v.muted; prefs.vol = v.volume; savePrefs(); syncButtons(); };
+      v.onratechange = () => { prefs.speed = v.playbackRate; $('speed').value = String(v.playbackRate); savePrefs(); };
+    }
+    pane.appendChild(v);
+  } else {
+    const img = new Image(); img.src = f.url; img.alt = f.base;
+    pane.appendChild(img);
+    zoomable(pane, img, f, isMain);
+  }
+  return pane;
+}
+
+function syncVideos() {
+  const [a, b] = panes.querySelectorAll('video');
+  if (!a || !b) return;
+  const main = mainVideo(), other = main === a ? b : a;
+  if (!main) return;
+  main.addEventListener('play', () => other.play().catch(() => {}));
+  main.addEventListener('pause', () => other.pause());
+  main.addEventListener('seeked', () => { other.currentTime = Math.min(main.currentTime, other.duration || 0); });
+  main.addEventListener('ratechange', () => { other.playbackRate = main.playbackRate; });
+}
+
+// ---------- viewer image zoom / pan ----------
+function zoomable(pane, img, f, isMain) {
+  const z = { s: 1, x: 0, y: 0, fit: true };
+  pane.classList.add('zoomable');
+  const apply = () => {
+    img.style.transform = `translate(${z.x}px,${z.y}px) scale(${z.s})`;
+    if (isMain) $('zoomLbl').textContent = Math.round(z.s * 100) + '%' + (z.fit ? ' (fit)' : '');
+  };
+  const fit = () => {
+    const W = pane.clientWidth, H = pane.clientHeight, nw = img.naturalWidth, nh = img.naturalHeight;
+    if (!nw) return;
+    z.s = Math.min(W / nw, H / nh); z.x = (W - nw * z.s) / 2; z.y = (H - nh * z.s) / 2; z.fit = true; apply();
+  };
+  const zoomAt = (cx, cy, ns) => {
+    ns = clamp(ns, 0.02, 50);
+    z.x = cx - (cx - z.x) * (ns / z.s); z.y = cy - (cy - z.y) * (ns / z.s); z.s = ns; z.fit = false; apply();
+  };
+  const center = () => [pane.clientWidth / 2, pane.clientHeight / 2];
+  img.onload = () => {
+    f.w = img.naturalWidth; f.h = img.naturalHeight; updateCard(f);
+    if (isMain) updateStatus();
+    fit(); img.style.visibility = 'visible';
+  };
+  pane.onwheel = e => { e.preventDefault(); const r = pane.getBoundingClientRect(); zoomAt(e.clientX - r.left, e.clientY - r.top, z.s * Math.exp(-e.deltaY * 0.0015)); };
+  pane.ondblclick = e => {
+    const r = pane.getBoundingClientRect();
+    if (z.fit) zoomAt(e.clientX - r.left, e.clientY - r.top, z.s < 1 ? 1 : z.s * 2); else fit();
+  };
+  pane.onpointerdown = e => {
+    if (e.button !== 0) return;
+    pane.setPointerCapture(e.pointerId); pane.classList.add('panning');
+    let lx = e.clientX, ly = e.clientY;
+    pane.onpointermove = ev => { z.x += ev.clientX - lx; z.y += ev.clientY - ly; lx = ev.clientX; ly = ev.clientY; z.fit = false; apply(); };
+    pane.onpointerup = () => { pane.onpointermove = null; pane.classList.remove('panning'); };
+  };
+  new ResizeObserver(() => z.fit && fit()).observe(pane);
+  pane.zoom = { in: () => zoomAt(...center(), z.s * 1.25), out: () => zoomAt(...center(), z.s / 1.25), fit };
+}
+
+// ---------- status / info ----------
+function updateStatus() {
+  const f = shown[cur];
+  $('rate').innerHTML = '';
+  if (!f) { $('statusText').textContent = ''; $('infoBox').classList.remove('show'); return; }
+  const r = rate(f);
+  for (let n = 1; n <= 5; n++) {
+    const s = document.createElement('span'); s.textContent = '★'; s.className = n <= r ? 'on' : '';
+    s.onclick = () => setRating(f, n === r ? 0 : n); $('rate').appendChild(s);
+  }
+  $('statusText').textContent = [`${cur + 1}/${shown.length}`, f.name, fmtSize(f.size), f.w ? `${f.w}×${f.h}` : '', f.dur ? fmtDur(f.dur) : ''].filter(Boolean).join('  ·  ');
+  const rows = [
+    ['Name', f.base], ['Folder', f.folder || '(root)'], ['Type', `${f.type} · ${ext(f.base)}`], ['Size', `${fmtSize(f.size)} (${f.size.toLocaleString()} bytes)`],
+    ['Resolution', f.w ? `${f.w} × ${f.h}  (${aspect(f.w, f.h)})` : '…'],
+    ...(f.type === 'video' ? [['Duration', f.dur ? `${fmtDur(f.dur)} (${f.dur.toFixed(2)}s)` : '…']] : []),
+    ['Modified', fmtDate(f.mtime)], ['Rating', r ? '★'.repeat(r) : '—'], ['Position', `${cur + 1} of ${shown.length}`],
+  ];
+  const box = $('infoBox');
+  box.innerHTML = '<table></table>';
+  rows.forEach(([k, v]) => { const tr = box.firstChild.insertRow(); tr.insertCell().textContent = k; tr.insertCell().textContent = v; });
+  box.classList.toggle('show', prefs.info);
+}
+
+// ---------- slideshow ----------
+function stopSlideTimer() { clearTimeout(slideTimer); }
+function restartSlide() {
+  stopSlideTimer();
+  if (!slideOn) return;
+  const f = shown[cur];
+  if (f?.type === 'image') slideTimer = setTimeout(() => select(cur + 1), prefs.slideSec * 1000);
+  const v = mainVideo(); if (v) v.loop = false;
+}
+function toggleSlide() {
+  slideOn = !slideOn; syncButtons(); restartSlide();
+  const v = mainVideo(); if (v && !slideOn) v.loop = prefs.loop && !prefs.autonext;
+  toast(slideOn ? `Slideshow on (${prefs.slideSec}s per image)` : 'Slideshow off');
+}
+
+// ---------- viewer actions ----------
+function togglePin() {
+  const f = shown[cur]; if (!f) return;
+  pinned = pinned === f ? null : f;
+  toast(pinned ? 'Pinned — pick another file to compare' : 'Compare off');
+  showStage(); syncButtons();
+}
+function toggleFs() { if (document.fullscreenElement) document.exitFullscreen(); else $('viewer').requestFullscreen?.(); }
+function step(dir) { const v = mainVideo(); if (!v) return; v.pause(); v.currentTime = clamp(v.currentTime + dir / 30, 0, v.duration || 0); }
+function seek(sec) { const v = mainVideo(); if (v) v.currentTime = clamp(v.currentTime + sec, 0, v.duration || 0); }
+function setSpeed(dirn) {
+  const opts = [...$('speed').options].map(o => +o.value);
+  const i = clamp(opts.indexOf(prefs.speed) + dirn, 0, opts.length - 1);
+  applySpeed(opts[i < 0 ? 3 : i]); toast(`Speed ${prefs.speed}×`);
+}
+function applySpeed(s) { prefs.speed = s; $('speed').value = String(s); panes.querySelectorAll('video').forEach(v => v.playbackRate = s); savePrefs(); }
+function frameCanvas() {
+  const v = mainVideo(); if (!v || !v.videoWidth) { toast('Snapshot works on a video'); return null; }
+  const c = mkCanvas(v.videoWidth, v.videoHeight); c.getContext('2d').drawImage(v, 0, 0); return [c, v];
+}
+async function snapshot() {
+  const r = frameCanvas(); if (!r) return; const [c, v] = r, f = shown[cur];
+  const blob = await toBlob(c, 'image/png');
+  const name = `${stem(f.base)}_${v.currentTime.toFixed(2)}s.png`;
+  if (f._parent && dirHandle) { const path = await saveToFolder(blob, name, f); if (path) { await loadHandle(f.name); toast('Frame saved to folder: ' + path.split('/').pop()); } }
+  else { download(blob, name); toast('Frame downloaded'); }
+}
+function copyFrame() {
+  const r = frameCanvas(); if (!r) return;
+  r[0].toBlob(async b => {
+    try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': b })]); toast('Frame copied to clipboard'); }
+    catch { toast('Clipboard blocked — use Snapshot instead'); }
+  }, 'image/png');
+}
+function cols() {
+  if (prefs.view === 'list' || !shown.length) return 1;
+  const top = shown[0].el.offsetTop; let n = 0;
+  while (n < shown.length && shown[n].el.offsetTop === top) n++;
+  return n || 1;
+}
+
+function syncButtons() {
+  $('dirBtn').textContent = prefs.dir > 0 ? '↑ Asc' : '↓ Desc';
+  $('viewBtn').textContent = prefs.view === 'grid' ? '☰ List' : '▦ Grid';
+  grid.classList.toggle('list', prefs.view === 'list');
+  $('loopBtn').classList.toggle('on', prefs.loop);
+  $('nextEndBtn').classList.toggle('on', prefs.autonext);
+  $('muteBtn').textContent = prefs.muted ? '🔇' : '🔊';
+  $('muteBtn').classList.toggle('on', !prefs.muted);
+  $('slideBtn').classList.toggle('on', slideOn);
+  $('slideBtn').textContent = slideOn ? '⏸ Slideshow' : '⏵ Slideshow';
+  $('pinBtn').classList.toggle('pinon', !!pinned);
+  $('infoBtn').classList.toggle('on', prefs.info);
+  const v = mainVideo();
+  if (v) v.loop = prefs.loop && !prefs.autonext && !slideOn;
+}
+
+// =====================================================================
+// FILE OPERATIONS (File System Access API — Chrome / Edge)
+// =====================================================================
+async function ensureWrite() {
+  if (!dirHandle) { toast('File editing needs the folder opened with “Load folder” (Chrome / Edge)', 3200); return false; }
+  try {
+    if (await dirHandle.queryPermission({ mode: 'readwrite' }) === 'granted') return true;
+    if (await dirHandle.requestPermission({ mode: 'readwrite' }) === 'granted') return true;
+  } catch {}
+  toast('Edit permission was not granted'); return false;
+}
+async function exists(dir, name) { try { await dir.getFileHandle(name); return true; } catch { return false; } }
+async function uniqueName(dir, name) {
+  if (!await exists(dir, name)) return name;
+  const s = stem(name), x = name.slice(s.length);
+  for (let n = 2; ; n++) { const c = `${s}_${n}${x}`; if (!await exists(dir, c)) return c; }
+}
+async function writeFile(dir, name, blob) {
+  const h = await dir.getFileHandle(name, { create: true });
+  const w = await h.createWritable(); await w.write(blob); await w.close(); return h;
+}
+// Move/rename a file handle; returns the handle of the file at its new location.
+async function moveHandle(h, fromDir, toDir, newName) {
+  if (h.move) {
+    try { if (toDir === fromDir) await h.move(newName); else await h.move(toDir, newName); return h; } catch {}
+  }
+  const file = await h.getFile();
+  const nh = await writeFile(toDir, newName, file);
+  await fromDir.removeEntry(h.name);
+  return nh;
+}
+async function renameItem(f, newBase) {
+  if (newBase === f.base) return;
+  const d = f._parent; let h = f._handle;
+  if (newBase.toLowerCase() === f.base.toLowerCase()) h = await moveHandle(h, d, d, `__rn_${Date.now()}_${f.base}`);
+  else if (await exists(d, newBase)) throw new Error(`“${newBase}” already exists`);
+  await moveHandle(h, d, d, newBase);
+  moveRating(f, (f.folder ? f.folder + '/' : '') + newBase);
+}
+async function saveToFolder(blob, filename, ref) {
+  if (!ref?._parent || !dirHandle) { download(blob, filename); toast('No folder access — downloaded instead'); return null; }
+  if (!await ensureWrite()) { download(blob, filename); return null; }
+  const name = await uniqueName(ref._parent, filename);
+  await writeFile(ref._parent, name, blob);
+  return (ref.folder ? ref.folder + '/' : '') + name;
+}
+
+let lastReject = [];
+async function rejectItems(items) {
+  items = items.filter(f => f._handle);
+  if (!items.length) return toast('Rejecting needs the folder opened with “Load folder” (Chrome / Edge)', 3200);
+  if (!await ensureWrite()) return;
+  const after = shown.slice(cur + 1).find(f => !items.includes(f)) || shown.slice(0, cur).reverse().find(f => !items.includes(f));
+  lastReject = [];
+  try {
+    for (const f of items) {
+      const rej = await f._parent.getDirectoryHandle('_rejected', { create: true });
+      const nm = await uniqueName(rej, f.base);
+      await moveHandle(f._handle, f._parent, rej, nm);
+      lastReject.push({ rej, nm, parent: f._parent, base: f.base, name: f.name });
+    }
+  } catch (e) { toast('Reject failed: ' + e.message, 3500); }
+  if (pinned && items.includes(pinned)) pinned = null;
+  await loadHandle(after?.name);
+  toast(`Moved ${lastReject.length} file(s) to _rejected · Ctrl+Z to undo`, 3200);
+}
+async function undoReject() {
+  if (!lastReject.length) return toast('Nothing to undo');
+  const first = lastReject[0].name;
+  for (const r of lastReject) {
+    try { const h = await r.rej.getFileHandle(r.nm); await moveHandle(h, r.rej, r.parent, await uniqueName(r.parent, r.base)); } catch {}
+  }
+  const n = lastReject.length; lastReject = [];
+  await loadHandle(first); toast(`Restored ${n} file(s)`);
+}
+
+// ---------- rename dialog ----------
+let rnItems = [];
+function openRename(items) {
+  items = items.filter(Boolean);
+  if (!items.length) return;
+  if (!items.every(f => f._handle)) return toast('Renaming needs the folder opened with “Load folder” (Chrome / Edge)', 3200);
+  rnItems = items;
+  $('rnTitle').textContent = items.length === 1 ? 'Rename file' : `Batch rename ${items.length} files`;
+  $('rnPat').value = items.length === 1 ? stem(items[0].base) : '{name}';
+  $('rnFind').value = ''; $('rnRep').value = '';
+  pauseMain();
+  $('dlgRename').showModal();
+  rnPreview();
+  const p = $('rnPat'); p.focus(); p.select();
+}
+function rnCompute(f, i) {
+  const pad = clamp(+$('rnPad').value || 1, 1, 6), start = +$('rnStart').value || 0;
+  let s = $('rnPat').value
+    .replaceAll('{name}', stem(f.base))
+    .replaceAll('{n}', String(start + i).padStart(pad, '0'))
+    .replaceAll('{date}', isoDate(f.mtime))
+    .replaceAll('{folder}', f.folder.split('/').pop() || '');
+  const find = $('rnFind').value;
+  if (find) s = s.split(find).join($('rnRep').value);
+  const cs = $('rnCase').value;
+  if (cs === 'lower') s = s.toLowerCase();
+  else if (cs === 'upper') s = s.toUpperCase();
+  else if (cs === 'title') s = s.toLowerCase().replace(/(^|[\s_\-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
+  const sp = $('rnSpace').value;
+  if (sp === 'none') s = s.replace(/\s+/g, ''); else if (sp) s = s.replace(/\s+/g, sp);
+  s = s.trim();
+  const e = extOf(f.base);
+  return e ? `${s}.${e}` : s;
+}
+function rnPreview() {
+  const tbl = $('rnTbl'); tbl.innerHTML = '';
+  const names = rnItems.map(rnCompute);
+  const others = new Set(all.filter(f => !rnItems.includes(f)).map(f => (f.folder + '/' + f.base).toLowerCase()));
+  const seen = new Map(); let bad = 0, changed = 0;
+  rnItems.forEach((f, i) => {
+    const k = (f.folder + '/' + names[i]).toLowerCase(); seen.set(k, (seen.get(k) || 0) + 1);
+  });
+  rnItems.forEach((f, i) => {
+    const nm = names[i], k = (f.folder + '/' + nm).toLowerCase();
+    let err = '';
+    if (!stem(nm)) err = 'empty name';
+    else if (/[\\/:*?"<>|]/.test(nm)) err = 'invalid character';
+    else if (seen.get(k) > 1) err = 'duplicate';
+    else if (others.has(k)) err = 'already exists';
+    if (err) bad++; if (nm !== f.base) changed++;
+    const tr = tbl.insertRow(); tr.className = err ? 'bad' : nm === f.base ? 'same' : '';
+    tr.insertCell().textContent = f.base; const a = tr.insertCell(); a.className = 'arrow'; a.textContent = '→';
+    tr.insertCell().textContent = nm + (err ? `  (${err})` : '');
+  });
+  $('rnMsg').textContent = bad ? `${bad} problem(s) — fix them to continue` : `${changed} of ${rnItems.length} will change`;
+  $('rnApply').disabled = !!bad || !changed;
+  return names;
+}
+['rnPat', 'rnFind', 'rnRep', 'rnStart', 'rnPad', 'rnCase', 'rnSpace'].forEach(id => $(id).addEventListener('input', rnPreview));
+$('rnCancel').onclick = () => $('dlgRename').close();
+$('dlgRename').addEventListener('keydown', e => { if (e.key === 'Enter' && !$('rnApply').disabled) { e.preventDefault(); $('rnApply').click(); } });
+$('rnApply').onclick = async () => {
+  const names = rnPreview(); if ($('rnApply').disabled) return;
+  if (!await ensureWrite()) return;
+  $('rnApply').disabled = true;
+  const jobs = rnItems.map((f, i) => ({ f, to: names[i] })).filter(j => j.to !== j.f.base);
+  const olds = new Set(jobs.map(j => (j.f.folder + '/' + j.f.base).toLowerCase()));
+  const chained = jobs.some(j => olds.has((j.f.folder + '/' + j.to).toLowerCase()));
+  let done = 0; const curName = shown[cur]?.name; let prefer = curName;
+  try {
+    if (chained) { // two-phase to avoid name collisions inside the batch (e.g. swapping numbers)
+      for (const j of jobs) { const tmp = `__tmp_${Date.now()}_${done++}_${j.f.base}`; j.h = await moveHandle(j.f._handle, j.f._parent, j.f._parent, tmp); }
+      done = 0;
+      for (const j of jobs) { await moveHandle(j.h, j.f._parent, j.f._parent, j.to); moveRating(j.f, j.f.folder + '/' + j.to); done++; toast(`Renaming ${done}/${jobs.length}…`); }
+    } else {
+      for (const j of jobs) { await renameItem(j.f, j.to); done++; if (jobs.length > 3) toast(`Renaming ${done}/${jobs.length}…`); }
+    }
+    const curJob = jobs.find(j => j.f.name === curName); if (curJob) prefer = curJob.f.folder + '/' + curJob.to;
+    toast(`Renamed ${done} file(s)`);
+  } catch (e) { toast('Rename stopped: ' + e.message, 4000); }
+  $('dlgRename').close();
+  await loadHandle(prefer);
+};
+
+// ---------- stitch dialog ----------
+let stItems = [];
+function openStitch(items) {
+  stItems = items.filter(f => f.type === 'image');
+  if (stItems.length < 2) return toast('Select at least 2 images');
+  pauseMain(); $('dlgStitch').showModal();
+}
+$('stCancel').onclick = () => $('dlgStitch').close();
+$('stGo').onclick = async () => {
+  $('dlgStitch').close(); toast('Stitching…');
+  const imgs = await Promise.all(stItems.map(f => loadImg(f.url)));
+  const lay = $('stLayout').value, gap = +$('stGap').value || 0, bg = $('stBg').value, colsN = clamp(+$('stCols').value || 2, 1, 20);
+  let W, H, places = [];
+  if (lay === 'h') {
+    const h = imgs[0].naturalHeight; let x = 0;
+    imgs.forEach(im => { const w = im.naturalWidth * h / im.naturalHeight; places.push([im, x, 0, w, h]); x += w + gap; });
+    W = x - gap; H = h;
+  } else if (lay === 'v') {
+    const w = imgs[0].naturalWidth; let y = 0;
+    imgs.forEach(im => { const h = im.naturalHeight * w / im.naturalWidth; places.push([im, 0, y, w, h]); y += h + gap; });
+    W = w; H = y - gap;
+  } else {
+    const cw = imgs[0].naturalWidth, ch = imgs[0].naturalHeight, rows = Math.ceil(imgs.length / colsN);
+    W = colsN * cw + (colsN - 1) * gap; H = rows * ch + (rows - 1) * gap;
+    imgs.forEach((im, i) => {
+      const s = Math.min(cw / im.naturalWidth, ch / im.naturalHeight), w = im.naturalWidth * s, h = im.naturalHeight * s;
+      const cx = (i % colsN) * (cw + gap), cy = Math.floor(i / colsN) * (ch + gap);
+      places.push([im, cx + (cw - w) / 2, cy + (ch - h) / 2, w, h]);
+    });
+  }
+  const k = Math.min(1, 16000 / W, 16000 / H, Math.sqrt(120e6 / (W * H)));
+  const c = mkCanvas(W * k, H * k), x = c.getContext('2d');
+  x.fillStyle = bg; x.fillRect(0, 0, c.width, c.height); x.imageSmoothingQuality = 'high';
+  places.forEach(([im, px, py, w, h]) => x.drawImage(im, px * k, py * k, w * k, h * k));
+  openImageEditor(stItems[0], c, `stitched_${stem(stItems[0].base)}_+${stItems.length - 1}`);
+};
+
+// =====================================================================
+// IMAGE PROCESSING CORE
+// =====================================================================
+function mkCanvas(w, h) { const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w)); c.height = Math.max(1, Math.round(h)); return c; }
+function cloneCanvas(src) { const c = mkCanvas(src.width, src.height); c.getContext('2d').drawImage(src, 0, 0); return c; }
+function loadImg(url) { return new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; }); }
+function toBlob(c, type, q) { return new Promise(r => c.toBlob(r, type, q)); }
+
+// Multi-scale membrane (harmonic) interpolation: fills unknown pixels (M=1) smoothly from known surroundings.
+function harmonicFill(chs, M, w, h) {
+  const n = w * h; let any = false;
+  for (let i = 0; i < n; i++) if (M[i]) { any = true; break; }
+  if (!any) return;
+  if (w <= 3 || h <= 3) {
+    for (const ch of chs) {
+      let s = 0, k = 0; for (let i = 0; i < n; i++) if (!M[i]) { s += ch[i]; k++; }
+      const m = k ? s / k : 0; for (let i = 0; i < n; i++) if (M[i]) ch[i] = m;
+    }
+  } else {
+    const w2 = (w + 1) >> 1, h2 = (h + 1) >> 1, n2 = w2 * h2;
+    const c2 = chs.map(() => new Float32Array(n2)), cnt = new Uint8Array(n2), M2 = new Uint8Array(n2);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x; if (M[i]) continue;
+      const j = (y >> 1) * w2 + (x >> 1); cnt[j]++;
+      for (let c = 0; c < chs.length; c++) c2[c][j] += chs[c][i];
+    }
+    for (let j = 0; j < n2; j++) { if (cnt[j]) for (let c = 0; c < chs.length; c++) c2[c][j] /= cnt[j]; else M2[j] = 1; }
+    harmonicFill(c2, M2, w2, h2);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x; if (!M[i]) continue;
+      const j = (y >> 1) * w2 + (x >> 1);
+      for (let c = 0; c < chs.length; c++) chs[c][i] = c2[c][j];
+    }
+  }
+  const unk = []; for (let i = 0; i < n; i++) if (M[i]) unk.push(i);
+  for (let it = 0; it < 28; it++) {
+    for (const i of unk) {
+      const x = i % w, y = (i / w) | 0;
+      for (const ch of chs) {
+        let s = 0, k = 0;
+        if (x > 0) { s += ch[i - 1]; k++; } if (x < w - 1) { s += ch[i + 1]; k++; }
+        if (y > 0) { s += ch[i - w]; k++; } if (y < h - 1) { s += ch[i + w]; k++; }
+        ch[i] = s / k;
+      }
+    }
+  }
+}
+function dilate(M, w, h, r) {
+  let a = M;
+  for (let k = 0; k < r; k++) {
+    const b = new Uint8Array(a);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x; if (a[i]) continue;
+      if ((x > 0 && a[i - 1]) || (x < w - 1 && a[i + 1]) || (y > 0 && a[i - w]) || (y < h - 1 && a[i + w])) b[i] = 1;
+    }
+    a = b;
+  }
+  return a;
+}
+function gauss() { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
+
+// Find a nearby, clean source area whose border best matches the border around the mask.
+function findOffset(px, W, H, M, x0, y0, rw, rh) {
+  const near = dilate(M, rw, rh, 4), ring = [];
+  for (let i = 0; i < M.length; i++) if (near[i] && !M[i]) ring.push(i);
+  if (!ring.length) return null;
+  const stepS = Math.max(1, Math.floor(ring.length / 500)), rs = ring.filter((_, i) => i % stepS === 0);
+  const size = Math.max(rw, rh), R = Math.round(Math.max(size * 2.5, 48)), step = Math.max(1, Math.round(size / 12));
+  let best = Infinity, bo = null;
+  const test = (ox, oy) => {
+    if (x0 + ox < 0 || y0 + oy < 0 || x0 + ox + rw > W || y0 + oy + rh > H) return;
+    if (Math.abs(ox) < rw && Math.abs(oy) < rh) return;
+    const lim = best / (1 + 0.25 * Math.hypot(ox, oy) / R);
+    let ssd = 0;
+    for (const k of rs) {
+      const x = k % rw, y = (k / rw) | 0, a = ((y0 + y) * W + x0 + x) * 4, b = a + (oy * W + ox) * 4;
+      const dr = px[a] - px[b], dg = px[a + 1] - px[b + 1], db = px[a + 2] - px[b + 2];
+      ssd += dr * dr + dg * dg + db * db;
+      if (ssd > lim) return;
+    }
+    ssd *= 1 + 0.25 * Math.hypot(ox, oy) / R;
+    if (ssd < best) { best = ssd; bo = { ox, oy }; }
+  };
+  for (let oy = -R; oy <= R; oy += step) for (let ox = -R; ox <= R; ox += step) test(ox, oy);
+  if (bo && step > 1) { const b0 = { ...bo }; for (let oy = b0.oy - step; oy <= b0.oy + step; oy++) for (let ox = b0.ox - step; ox <= b0.ox + step; ox++) test(ox, oy); }
+  return bo;
+}
+
+// Remove masked area. texture=true: seamless clone from the best-matching nearby patch; otherwise smooth fill + matched grain.
+function inpaint(ctx, W, H, maskAlpha, texture) {
+  let bx0 = W, by0 = H, bx1 = -1, by1 = -1;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (maskAlpha[(y * W + x) * 4 + 3] > 16) {
+    if (x < bx0) bx0 = x; if (x > bx1) bx1 = x; if (y < by0) by0 = y; if (y > by1) by1 = y;
+  }
+  if (bx1 < 0) return false;
+  const pad = 6, x0 = Math.max(0, bx0 - pad), y0 = Math.max(0, by0 - pad), x1 = Math.min(W - 1, bx1 + pad), y1 = Math.min(H - 1, by1 + pad);
+  const rw = x1 - x0 + 1, rh = y1 - y0 + 1;
+  let M = new Uint8Array(rw * rh);
+  for (let y = 0; y < rh; y++) for (let x = 0; x < rw; x++) M[y * rw + x] = maskAlpha[((y0 + y) * W + x0 + x) * 4 + 3] > 16 ? 1 : 0;
+  M = dilate(M, rw, rh, 2);
+  const full = ctx.getImageData(0, 0, W, H), px = full.data;
+  const off = texture ? findOffset(px, W, H, M, x0, y0, rw, rh) : null;
+  const n = rw * rh, chs = [0, 1, 2].map(() => new Float32Array(n));
+  const at = (x, y) => ((y0 + y) * W + x0 + x) * 4;
+  if (off) {
+    const so = (off.oy * W + off.ox) * 4;
+    for (let y = 0; y < rh; y++) for (let x = 0; x < rw; x++) {
+      const i = y * rw + x, a = at(x, y);
+      for (let c = 0; c < 3; c++) chs[c][i] = M[i] ? 0 : px[a + c] - px[a + so + c];
+    }
+    harmonicFill(chs, M, rw, rh);
+    for (let y = 0; y < rh; y++) for (let x = 0; x < rw; x++) {
+      const i = y * rw + x; if (!M[i]) continue; const a = at(x, y);
+      for (let c = 0; c < 3; c++) px[a + c] = px[a + so + c] + chs[c][i];
+    }
+  } else {
+    for (let y = 0; y < rh; y++) for (let x = 0; x < rw; x++) {
+      const i = y * rw + x, a = at(x, y); for (let c = 0; c < 3; c++) chs[c][i] = px[a + c];
+    }
+    // estimate surrounding grain so the fill isn't plastic-smooth
+    let s2 = 0, k = 0;
+    for (let y = 1; y < rh - 1; y++) for (let x = 1; x < rw - 1; x++) {
+      const i = y * rw + x; if (M[i] || M[i - 1] || M[i + 1] || M[i - rw] || M[i + rw]) continue;
+      const g = chs[1], d = g[i] - (g[i - 1] + g[i + 1] + g[i - rw] + g[i + rw]) / 4; s2 += d * d; k++;
+    }
+    const sigma = k ? Math.min(12, Math.sqrt(s2 / k) * 0.8) : 0;
+    harmonicFill(chs, M, rw, rh);
+    for (let y = 0; y < rh; y++) for (let x = 0; x < rw; x++) {
+      const i = y * rw + x; if (!M[i]) continue; const a = at(x, y), g = sigma * gauss();
+      for (let c = 0; c < 3; c++) px[a + c] = chs[c][i] + g;
+    }
+  }
+  ctx.putImageData(full, 0, 0, x0, y0, rw, rh);
+  return true;
+}
+
+// Fast rectangle removal for video frames (smooth fill / blur / pixelate).
+function removeRect(ctx, x, y, w, h, method) {
+  const CW = ctx.canvas.width, CH = ctx.canvas.height;
+  x = Math.round(clamp(x, 0, CW)); y = Math.round(clamp(y, 0, CH));
+  w = Math.round(clamp(w, 0, CW - x)); h = Math.round(clamp(h, 0, CH - y));
+  if (w < 2 || h < 2) return;
+  if (method === 'blur') {
+    ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+    ctx.filter = `blur(${Math.max(4, Math.min(w, h) / 3)}px)`; ctx.drawImage(ctx.canvas, 0, 0); ctx.restore(); return;
+  }
+  if (method === 'pixelate') {
+    const k = Math.max(4, Math.round(Math.min(w, h) / 5)), t = mkCanvas(Math.ceil(w / k), Math.ceil(h / k));
+    t.getContext('2d').drawImage(ctx.canvas, x, y, w, h, 0, 0, t.width, t.height);
+    ctx.save(); ctx.imageSmoothingEnabled = false; ctx.drawImage(t, 0, 0, t.width, t.height, x, y, w, h); ctx.restore(); return;
+  }
+  const p = 2, X = Math.max(0, x - p), Y = Math.max(0, y - p), RW = Math.min(CW, x + w + p) - X, RH = Math.min(CH, y + h + p) - Y;
+  const id = ctx.getImageData(X, Y, RW, RH), d = id.data, n = RW * RH;
+  const M = new Uint8Array(n), chs = [0, 1, 2].map(() => new Float32Array(n));
+  for (let j = 0; j < RH; j++) for (let i = 0; i < RW; i++) {
+    const k = j * RW + i, gx = X + i, gy = Y + j;
+    M[k] = gx >= x && gx < x + w && gy >= y && gy < y + h ? 1 : 0;
+    for (let c = 0; c < 3; c++) chs[c][k] = d[k * 4 + c];
+  }
+  harmonicFill(chs, M, RW, RH);
+  for (let k = 0; k < n; k++) if (M[k]) for (let c = 0; c < 3; c++) d[k * 4 + c] = chs[c][k];
+  ctx.putImageData(id, X, Y);
+}
+
+// Adjustments: CSS-filter pipeline + per-pixel warmth / sharpen.
+const ADJ = [['b', 'Brightness', 0, 200, 100], ['c', 'Contrast', 0, 200, 100], ['s', 'Saturation', 0, 300, 100], ['h', 'Hue', -180, 180, 0],
+  ['w', 'Warmth', -50, 50, 0], ['sh', 'Sharpen', 0, 100, 0], ['bl', 'Blur', 0, 20, 0]];
+const adjDefault = () => Object.fromEntries(ADJ.map(a => [a[0], a[4]]));
+const adjActive = a => ADJ.some(([k, , , , d]) => a[k] !== d);
+function renderAdjusted(src, w, h, a, scale) {
+  const c = mkCanvas(w, h), x = c.getContext('2d', { willReadFrequently: !!(a.sh || a.w) });
+  x.filter = `brightness(${a.b}%) contrast(${a.c}%) saturate(${a.s}%) hue-rotate(${a.h}deg)` + (a.bl ? ` blur(${a.bl * scale}px)` : '');
+  x.imageSmoothingQuality = 'high'; x.drawImage(src, 0, 0, w, h); x.filter = 'none';
+  if (a.sh || a.w) {
+    const id = x.getImageData(0, 0, c.width, c.height), d = id.data, W = c.width, H = c.height;
+    if (a.w) { const k = a.w * 0.6; for (let i = 0; i < d.length; i += 4) { d[i] += k; d[i + 2] -= k; } }
+    if (a.sh) {
+      const s = a.sh / 100 * 1.2, o = new Uint8ClampedArray(d), r = W * 4;
+      for (let y = 1; y < H - 1; y++) for (let xx = 1; xx < W - 1; xx++) {
+        const i = (y * W + xx) * 4;
+        for (let ch = 0; ch < 3; ch++) d[i + ch] = o[i + ch] * (1 + 4 * s) - s * (o[i + ch - 4] + o[i + ch + 4] + o[i + ch - r] + o[i + ch + r]);
+      }
+    }
+    x.putImageData(id, 0, 0);
+  }
+  return c;
+}
+
+// =====================================================================
+// EDITOR (shared)
+// =====================================================================
+const edC = $('edCanvas'), edX = edC.getContext('2d');
+let ed = null;
+const edOpen = () => !$('editor').hidden;
+const dpr = () => window.devicePixelRatio || 1;
+function edSize() { const d = dpr(); return { SW: edC.width / d, SH: edC.height / d }; }
+function edResize() {
+  const st = $('edStage'), d = dpr();
+  edC.width = Math.max(1, st.clientWidth * d); edC.height = Math.max(1, st.clientHeight * d);
+  if (!ed) return;
+  if (ed.kind === 'image') { if (ed.fitted) imgFit(); imgDraw(); } else ed.dirty = true;
+}
+new ResizeObserver(() => edOpen() && edResize()).observe($('edStage'));
+function showEditor() { pauseMain(); $('editor').hidden = false; edResize(); }
+function closeEditor(force) {
+  if (!ed) { $('editor').hidden = true; return; }
+  if (ed.busy && !force) return toast('Export in progress — cancel it first');
+  if (!force && ed.kind === 'image' && ed.changed && !ed.saved && !confirm('Discard unsaved changes?')) return;
+  if (ed.kind === 'video') { cancelAnimationFrame(ed.raf); ed.v.pause(); ed.v.removeAttribute('src'); ed.v.load(); }
+  ed = null; $('editor').hidden = true; $('edTransport').hidden = true; edC.style.cursor = '';
+}
+$('edClose').onclick = () => closeEditor();
+function setProg(p, text, sub) {
+  $('edProgBar').style.width = clamp(p, 0, 1) * 100 + '%';
+  if (text != null) $('edProgText').textContent = text;
+  if (sub != null) $('edProgSub').textContent = sub;
+}
+function busy(on, text = 'Working…', cancellable = false) {
+  $('edProg').classList.toggle('show', on); setProg(0, text, '');
+  $('edCancel').style.display = cancellable ? '' : 'none';
+  $('edProgBar').parentNode.style.display = cancellable ? '' : 'none';
+}
+$('edCancel').onclick = () => { if (ed) ed.cancel = true; };
+function evPt(e) { const r = edC.getBoundingClientRect(); return { sx: e.clientX - r.left, sy: e.clientY - r.top }; }
+function edStartFromViewer() {
+  const items = targets();
+  if (!items.length) return;
+  if (items.length > 1) return openVideoEditor(items);
+  const f = items[0];
+  f.type === 'image' ? openImageEditor(f) : openVideoEditor([f]);
+}
+
+// =====================================================================
+// IMAGE EDITOR
+// =====================================================================
+async function openImageEditor(f, canvas, name) {
+  if (!canvas) {
+    try { const img = await loadImg(f.url); canvas = mkCanvas(img.naturalWidth || 1024, img.naturalHeight || 1024); canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height); }
+    catch { return toast('Could not open this image'); }
+  }
+  const e0 = extOf(f.base).toLowerCase();
+  ed = { kind: 'image', f, isNew: !!name, doc: canvas, docId: 1, hist: [], redo: [], tool: 'remove', crop: null, mask: null, maskTint: null, maskEmpty: true,
+    brush: 40, brushMode: 'brush', method: 'smart', adj: adjDefault(), view: { s: 1, ox: 0, oy: 0 }, fitted: true, changed: !!name, saved: false,
+    fmt: e0 === 'jpg' || e0 === 'jpeg' || e0 === 'jfif' ? 'jpeg' : e0 === 'webp' ? 'webp' : 'png', q: 92, aspect: 'free' };
+  $('edTitle').textContent = '🖼 ' + (name ? name : f.base);
+  $('edTopTools').innerHTML = `
+    <button class="btn" data-t="remove" title="Remove watermark / object (R)">🩹 Remove</button>
+    <button class="btn" data-t="crop" title="Crop (C)">✂ Crop</button>
+    <button class="btn" data-t="adjust" title="Adjust colours (A)">🎚 Adjust</button>
+    <button class="btn" data-t="transform" title="Rotate, flip, resize (T)">⟳ Transform</button>
+    <span class="sep"></span>
+    <button class="btn" id="edUndo" title="Undo (Ctrl+Z)">↶</button><button class="btn" id="edRedo" title="Redo (Ctrl+Y)">↷</button>
+    <button class="btn" id="edFit" title="Fit to screen (0)">Fit</button>`;
+  $('edTopTools').querySelectorAll('[data-t]').forEach(b => b.onclick = () => setTool(b.dataset.t));
+  $('edUndo').onclick = undo; $('edRedo').onclick = redo; $('edFit').onclick = () => { imgFit(); imgDraw(); };
+  $('edSide').innerHTML = `
+    <div class="sec" data-tool="remove"><h4>Remove watermark / object</h4>
+      <div class="seg"><button class="btn" data-bm="brush">🖌 Brush</button><button class="btn" data-bm="box">▭ Box</button></div>
+      <div class="slider"><span>Brush size</span><input type="range" id="edBrush" min="4" max="250" value="40"><span id="edBrushV">40</span></div>
+      <div class="srow"><span style="width:78px">Method</span><select id="edMethod">
+        <option value="smart">✨ Smart fill (texture)</option><option value="smooth">Smooth fill</option><option value="blur">Blur</option><option value="pixelate">Pixelate</option></select></div>
+      <div class="hint">Paint over the watermark (cover it fully, plus a small margin) then press <b>Remove</b> or Enter. Repeat in small passes for best results. Scroll to zoom, right-drag or Space+drag to pan.</div>
+      <div class="srow"><button class="btn primary" id="edRemove">Remove</button><button class="btn" id="edClearMask">Clear selection</button></div>
+    </div>
+    <div class="sec" data-tool="crop"><h4>Crop</h4>
+      <div class="srow"><span style="width:78px">Aspect</span><select id="edAspect">
+        <option value="free">Free</option><option value="orig">Original</option><option value="1:1">1:1 Square</option><option value="4:5">4:5 Portrait</option><option value="9:16">9:16 Story / Reel</option>
+        <option value="16:9">16:9 Wide</option><option value="4:3">4:3</option><option value="3:4">3:4</option><option value="3:2">3:2</option><option value="2:3">2:3</option><option value="21:9">21:9 Cinema</option></select></div>
+      <div class="hint">Drag on the image to draw the crop; drag inside it to move.</div>
+      <div class="dim" id="edCropInfo">No crop selected</div>
+      <div class="srow"><button class="btn primary" id="edCropApply">Apply crop</button><button class="btn" id="edCropAll">Select max</button><button class="btn" id="edCropClear">Clear</button></div>
+    </div>
+    <div class="sec" data-tool="adjust"><h4>Adjust</h4><div id="edAdj"></div>
+      <div class="srow"><button class="btn primary" id="edAdjApply">Apply</button><button class="btn" id="edAdjReset">Reset</button></div>
+    </div>
+    <div class="sec" data-tool="transform"><h4>Rotate &amp; flip</h4>
+      <div class="seg"><button class="btn" data-rot="-90">⟲ 90°</button><button class="btn" data-rot="90">⟳ 90°</button><button class="btn" data-rot="180">180°</button>
+      <button class="btn" data-flip="h">⇋ Flip H</button><button class="btn" data-flip="v">⇵ Flip V</button></div>
+      <h4 style="margin-top:14px">Resize</h4>
+      <div class="srow">W <input type="number" id="edRW" min="1"> H <input type="number" id="edRH" min="1"> <label><input type="checkbox" id="edRLock" checked> lock</label></div>
+      <div class="seg"><button class="btn sm" data-rs="0.5">50%</button><button class="btn sm" data-rs="0.75">75%</button><button class="btn sm" data-rs="2">200%</button>
+        <button class="btn sm" data-rl="1080">1080 long</button><button class="btn sm" data-rl="1920">1920 long</button><button class="btn sm" data-rl="3840">4K long</button></div>
+      <div class="srow"><button class="btn primary" id="edResize">Apply resize</button></div>
+    </div>
+    <div class="sec"><h4>History</h4><div class="srow"><button class="btn" id="edReset">Revert to original</button></div><div class="dim" id="edHist"></div></div>`;
+  $('edFoot').innerHTML = `
+    <label class="dim">File name</label><input type="text" id="edName" style="width:280px" spellcheck="false">
+    <select id="edFmt"><option value="png">PNG (lossless)</option><option value="jpeg">JPG</option><option value="webp">WebP</option></select>
+    <label class="dim" id="edQWrap">Quality <input type="range" id="edQ" min="50" max="100" value="92"> <span id="edQV">92</span></label>
+    <span style="margin-left:auto"></span>
+    <button class="btn" id="edDownload" title="Download a copy">⬇ Download</button>
+    <button class="btn" id="edOverwrite" title="Replace the original file">Overwrite original</button>
+    <button class="btn primary" id="edSave" title="Save a new file next to the original (Ctrl+S)">💾 Save copy to folder</button>`;
+  $('edName').value = name || stem(f.base) + '_edit';
+  $('edFmt').value = ed.fmt;
+  $('edOverwrite').style.display = ed.isNew ? 'none' : '';
+  ed.original = canvas;
+  wireImageSide();
+  showEditor(); $('edTransport').hidden = true;
+  setTool('remove'); imgFit(); imgDraw();
+}
+
+function wireImageSide() {
+  document.querySelectorAll('[data-bm]').forEach(b => b.onclick = () => { ed.brushMode = b.dataset.bm; syncEdUI(); });
+  $('edBrush').oninput = e => { ed.brush = +e.target.value; $('edBrushV').textContent = ed.brush; imgDraw(); };
+  $('edMethod').onchange = e => ed.method = e.target.value;
+  $('edRemove').onclick = applyRemove;
+  $('edClearMask').onclick = () => { clearMask(); imgDraw(); };
+  $('edAspect').onchange = e => { ed.aspect = e.target.value; cropMax(); };
+  $('edCropApply').onclick = applyCrop;
+  $('edCropAll').onclick = cropMax;
+  $('edCropClear').onclick = () => { ed.crop = null; syncEdUI(); imgDraw(); };
+  const adj = $('edAdj');
+  adj.innerHTML = ADJ.map(([k, l, mn, mx]) => `<div class="slider"><span>${l}</span><input type="range" min="${mn}" max="${mx}" data-adj="${k}"><span data-adjv="${k}"></span></div>`).join('');
+  adj.querySelectorAll('[data-adj]').forEach(r => r.oninput = () => { ed.adj[r.dataset.adj] = +r.value; syncEdUI(); imgDraw(); });
+  $('edAdjApply').onclick = applyAdjust;
+  $('edAdjReset').onclick = () => { ed.adj = adjDefault(); syncEdUI(); imgDraw(); };
+  document.querySelectorAll('[data-rot]').forEach(b => b.onclick = () => rotate(+b.dataset.rot));
+  document.querySelectorAll('[data-flip]').forEach(b => b.onclick = () => flip(b.dataset.flip));
+  const ar = () => ed.doc.width / ed.doc.height;
+  $('edRW').oninput = () => { if ($('edRLock').checked) $('edRH').value = Math.round(+$('edRW').value / ar()); };
+  $('edRH').oninput = () => { if ($('edRLock').checked) $('edRW').value = Math.round(+$('edRH').value * ar()); };
+  document.querySelectorAll('[data-rs]').forEach(b => b.onclick = () => { $('edRW').value = Math.round(ed.doc.width * b.dataset.rs); $('edRH').value = Math.round(ed.doc.height * b.dataset.rs); });
+  document.querySelectorAll('[data-rl]').forEach(b => b.onclick = () => { const s = b.dataset.rl / Math.max(ed.doc.width, ed.doc.height); $('edRW').value = Math.round(ed.doc.width * s); $('edRH').value = Math.round(ed.doc.height * s); });
+  $('edResize').onclick = () => resizeDoc(+$('edRW').value, +$('edRH').value);
+  $('edReset').onclick = () => { if (ed.doc !== ed.original) commit(cloneCanvas(ed.original)); };
+  $('edFmt').onchange = e => { ed.fmt = e.target.value; syncEdUI(); };
+  $('edQ').oninput = e => { ed.q = +e.target.value; $('edQV').textContent = ed.q; };
+  $('edSave').onclick = () => saveImage('copy');
+  $('edOverwrite').onclick = () => saveImage('overwrite');
+  $('edDownload').onclick = () => saveImage('download');
+}
+
+function setTool(t) {
+  if (ed.tool === 'adjust' && t !== 'adjust' && adjActive(ed.adj)) applyAdjust();
+  ed.tool = t; syncEdUI(); imgDraw();
+}
+function syncEdUI() {
+  if (!ed || ed.kind !== 'image') return;
+  $('edTopTools').querySelectorAll('[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === ed.tool));
+  $('edSide').querySelectorAll('[data-tool]').forEach(s => s.style.display = s.dataset.tool === ed.tool ? '' : 'none');
+  document.querySelectorAll('[data-bm]').forEach(b => b.classList.toggle('on', b.dataset.bm === ed.brushMode));
+  ADJ.forEach(([k]) => { const r = document.querySelector(`[data-adj="${k}"]`); r.value = ed.adj[k]; document.querySelector(`[data-adjv="${k}"]`).textContent = ed.adj[k]; });
+  $('edUndo').disabled = !ed.hist.length; $('edRedo').disabled = !ed.redo.length;
+  $('edHist').textContent = `${ed.hist.length} step(s) · ${ed.doc.width} × ${ed.doc.height} px`;
+  $('edCropInfo').textContent = ed.crop ? `${Math.round(ed.crop.w)} × ${Math.round(ed.crop.h)} px at ${Math.round(ed.crop.x)}, ${Math.round(ed.crop.y)}` : 'No crop selected';
+  $('edCropApply').disabled = !ed.crop;
+  $('edRemove').disabled = ed.maskEmpty;
+  $('edRW').value ||= ed.doc.width; $('edRH').value ||= ed.doc.height;
+  $('edQWrap').style.display = ed.fmt === 'png' ? 'none' : '';
+  edC.style.cursor = ed.tool === 'crop' || (ed.tool === 'remove' && ed.brushMode === 'box') ? 'crosshair' : ed.tool === 'remove' ? 'none' : 'grab';
+}
+function imgFit() {
+  const { SW, SH } = edSize(), d = ed.doc;
+  const s = Math.min((SW - 40) / d.width, (SH - 40) / d.height, 8);
+  ed.view = { s, ox: (SW - d.width * s) / 2, oy: (SH - d.height * s) / 2 }; ed.fitted = true;
+}
+function adjPreview() {
+  const d = ed.doc, w = Math.min(d.width, Math.round(d.width * ed.view.s * dpr())), h = Math.min(d.height, Math.round(d.height * ed.view.s * dpr()));
+  const key = JSON.stringify(ed.adj) + w + 'x' + h + '#' + ed.docId;
+  if (ed.adjCache?.key !== key) ed.adjCache = { key, c: renderAdjusted(d, w, h, ed.adj, w / d.width) };
+  return ed.adjCache.c;
+}
+function imgDraw() {
+  if (!ed || ed.kind !== 'image') return;
+  const k = dpr(), { SW, SH } = edSize(), d = ed.doc, { s, ox, oy } = ed.view, dw = d.width * s, dh = d.height * s;
+  edX.setTransform(k, 0, 0, k, 0, 0); edX.clearRect(0, 0, SW, SH);
+  edX.imageSmoothingEnabled = s < 2; edX.imageSmoothingQuality = 'high';
+  edX.drawImage(ed.tool === 'adjust' && adjActive(ed.adj) ? adjPreview() : d, ox, oy, dw, dh);
+  if (ed.mask && !ed.maskEmpty && ed.tool === 'remove') { edX.globalAlpha = .5; edX.drawImage(ed.maskTint, ox, oy, dw, dh); edX.globalAlpha = 1; }
+  if (ed.boxDraft) { const b = ed.boxDraft; edX.strokeStyle = '#ff3b5c'; edX.setLineDash([5, 4]); edX.strokeRect(ox + b.x * s, oy + b.y * s, b.w * s, b.h * s); edX.setLineDash([]); }
+  if (ed.tool === 'crop' && ed.crop) {
+    const r = ed.crop, x = ox + r.x * s, y = oy + r.y * s, w = r.w * s, h = r.h * s;
+    edX.fillStyle = 'rgba(0,0,0,.62)'; edX.beginPath(); edX.rect(ox, oy, dw, dh); edX.rect(x, y, w, h); edX.fill('evenodd');
+    edX.strokeStyle = 'rgba(255,255,255,.35)'; edX.lineWidth = 1; edX.beginPath();
+    for (let i = 1; i < 3; i++) { edX.moveTo(x + w * i / 3, y); edX.lineTo(x + w * i / 3, y + h); edX.moveTo(x, y + h * i / 3); edX.lineTo(x + w, y + h * i / 3); }
+    edX.stroke(); edX.strokeStyle = '#fff'; edX.lineWidth = 2; edX.strokeRect(x, y, w, h);
+    edX.fillStyle = 'rgba(0,0,0,.75)'; const lbl = `${Math.round(r.w)} × ${Math.round(r.h)}`; edX.font = '12px system-ui';
+    const tw = edX.measureText(lbl).width + 12; edX.fillRect(x, Math.max(0, y - 22), tw, 20); edX.fillStyle = '#fff'; edX.fillText(lbl, x + 6, Math.max(0, y - 22) + 14);
+  }
+  if (ed.tool === 'remove' && ed.brushMode === 'brush' && ed.cursor) {
+    edX.beginPath(); edX.arc(ed.cursor.sx, ed.cursor.sy, ed.brush / 2, 0, Math.PI * 2);
+    edX.strokeStyle = '#fff'; edX.lineWidth = 1.5; edX.stroke(); edX.strokeStyle = '#000'; edX.lineWidth = .5; edX.stroke();
+  }
+  $('edInfo').textContent = `${d.width} × ${d.height} px · ${Math.round(s * 100)}%`;
+}
+function toDoc(p) { return { x: (p.sx - ed.view.ox) / ed.view.s, y: (p.sy - ed.view.oy) / ed.view.s }; }
+function ensureMask() {
+  const d = ed.doc;
+  if (!ed.mask || ed.mask.width !== d.width || ed.mask.height !== d.height) { ed.mask = mkCanvas(d.width, d.height); ed.maskTint = mkCanvas(d.width, d.height); ed.maskEmpty = true; }
+}
+function clearMask() { if (ed.mask) ed.mask.getContext('2d').clearRect(0, 0, ed.mask.width, ed.mask.height); ed.maskEmpty = true; syncEdUI(); }
+function tintMask() {
+  const t = ed.maskTint.getContext('2d'); t.globalCompositeOperation = 'copy'; t.drawImage(ed.mask, 0, 0);
+  t.globalCompositeOperation = 'source-in'; t.fillStyle = '#ff2d55'; t.fillRect(0, 0, t.canvas.width, t.canvas.height); t.globalCompositeOperation = 'source-over';
+}
+function paintMask(a, b) {
+  const x = ed.mask.getContext('2d'); x.strokeStyle = '#fff'; x.lineCap = x.lineJoin = 'round'; x.lineWidth = ed.brush / ed.view.s;
+  x.beginPath(); x.moveTo(a.x, a.y); x.lineTo(b.x + 0.01, b.y); x.stroke();
+  if (ed.maskEmpty) { ed.maskEmpty = false; syncEdUI(); }
+  tintMask();
+}
+const cropAR = () => { const a = ed.aspect; if (a === 'free') return 0; if (a === 'orig') return ed.doc.width / ed.doc.height; const [p, q] = a.split(':').map(Number); return p / q; };
+function cropFrom(x0, y0, x1, y1) {
+  const W = ed.doc.width, H = ed.doc.height; x1 = clamp(x1, 0, W); y1 = clamp(y1, 0, H);
+  let w = x1 - x0, h = y1 - y0; const ar = cropAR();
+  if (ar) {
+    if (Math.abs(w) / ar > Math.abs(h)) h = (h < 0 ? -1 : 1) * Math.abs(w) / ar; else w = (w < 0 ? -1 : 1) * Math.abs(h) * ar;
+    const maxW = w < 0 ? x0 : W - x0, maxH = h < 0 ? y0 : H - y0;
+    const k = Math.min(1, w ? maxW / Math.abs(w) : 1, h ? maxH / Math.abs(h) : 1); w *= k; h *= k;
+  }
+  return { x: Math.min(x0, x0 + w), y: Math.min(y0, y0 + h), w: Math.abs(w), h: Math.abs(h) };
+}
+function cropMax() {
+  const W = ed.doc.width, H = ed.doc.height, ar = cropAR();
+  let w = W, h = H; if (ar) { if (W / H > ar) w = H * ar; else h = W / ar; }
+  ed.crop = { x: (W - w) / 2, y: (H - h) / 2, w, h };
+  if (ed.tool !== 'crop') ed.tool = 'crop';
+  syncEdUI(); imgDraw();
+}
+
+edC.addEventListener('contextmenu', e => e.preventDefault());
+edC.onwheel = e => {
+  if (!ed) return; e.preventDefault();
+  if (ed.kind !== 'image') return;
+  const p = evPt(e), v = ed.view, ns = clamp(v.s * Math.exp(-e.deltaY * 0.0015), 0.02, 40);
+  v.ox = p.sx - (p.sx - v.ox) * (ns / v.s); v.oy = p.sy - (p.sy - v.oy) * (ns / v.s); v.s = ns; ed.fitted = false; imgDraw();
+};
+edC.onpointerdown = e => { if (!ed) return; edC.setPointerCapture(e.pointerId); ed.kind === 'image' ? imgDown(e) : vidDown(e); };
+edC.onpointermove = e => { if (!ed) return; ed.kind === 'image' ? imgMove(e) : vidMove(e); };
+edC.onpointerup = e => { if (!ed) return; ed.kind === 'image' ? imgUp(e) : vidUp(e); };
+edC.onpointerleave = () => { if (ed?.kind === 'image' && !ed.drag) { ed.cursor = null; imgDraw(); } };
+
+function imgDown(e) {
+  const p = evPt(e), d = toDoc(p);
+  if (e.button === 1 || e.button === 2 || ed.space || ed.tool === 'transform' || ed.tool === 'adjust') {
+    ed.drag = { type: 'pan', sx: p.sx, sy: p.sy, ox: ed.view.ox, oy: ed.view.oy }; edC.style.cursor = 'grabbing'; return;
+  }
+  if (ed.tool === 'crop') {
+    const r = ed.crop;
+    if (r && d.x > r.x && d.x < r.x + r.w && d.y > r.y && d.y < r.y + r.h) ed.drag = { type: 'cropmove', dx: d.x - r.x, dy: d.y - r.y };
+    else { const x0 = clamp(d.x, 0, ed.doc.width), y0 = clamp(d.y, 0, ed.doc.height); ed.drag = { type: 'crop', x0, y0 }; ed.crop = { x: x0, y: y0, w: 0, h: 0 }; }
+  } else if (ed.tool === 'remove') {
+    ensureMask();
+    if (ed.brushMode === 'brush') { ed.drag = { type: 'paint', last: d }; paintMask(d, d); }
+    else { ed.drag = { type: 'box', x0: d.x, y0: d.y }; ed.boxDraft = { x: d.x, y: d.y, w: 0, h: 0 }; }
+  }
+  imgDraw();
+}
+function imgMove(e) {
+  const p = evPt(e), d = toDoc(p); ed.cursor = p;
+  const g = ed.drag;
+  if (g) {
+    if (g.type === 'pan') { ed.view.ox = g.ox + p.sx - g.sx; ed.view.oy = g.oy + p.sy - g.sy; ed.fitted = false; }
+    else if (g.type === 'crop') { ed.crop = cropFrom(g.x0, g.y0, d.x, d.y); syncEdUI(); }
+    else if (g.type === 'cropmove') { const r = ed.crop; r.x = clamp(d.x - g.dx, 0, ed.doc.width - r.w); r.y = clamp(d.y - g.dy, 0, ed.doc.height - r.h); syncEdUI(); }
+    else if (g.type === 'paint') { paintMask(g.last, d); g.last = d; }
+    else if (g.type === 'box') { ed.boxDraft = { x: Math.min(g.x0, d.x), y: Math.min(g.y0, d.y), w: Math.abs(d.x - g.x0), h: Math.abs(d.y - g.y0) }; }
+  }
+  imgDraw();
+}
+function imgUp() {
+  const g = ed.drag; ed.drag = null;
+  if (!g) return;
+  if (g.type === 'box' && ed.boxDraft) {
+    const b = ed.boxDraft; ed.boxDraft = null;
+    if (b.w > 1 && b.h > 1) { const x = ed.mask.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(b.x, b.y, b.w, b.h); ed.maskEmpty = false; tintMask(); }
+  }
+  if (g.type === 'crop' && ed.crop && (ed.crop.w < 4 || ed.crop.h < 4)) ed.crop = null;
+  syncEdUI(); imgDraw();
+}
+
+function commit(newDoc) {
+  ed.hist.push(ed.doc); if (ed.hist.length > 15) ed.hist.shift();
+  ed.redo = []; setDoc(newDoc); ed.changed = true; ed.saved = false;
+}
+function setDoc(d) {
+  const resized = d.width !== ed.doc.width || d.height !== ed.doc.height;
+  ed.doc = d; ed.docId++; ed.adjCache = null;
+  if (resized) { ed.crop = null; ed.mask = null; ed.maskEmpty = true; imgFit(); $('edRW').value = d.width; $('edRH').value = d.height; }
+  syncEdUI(); imgDraw();
+}
+function undo() { if (!ed.hist.length) return; ed.redo.push(ed.doc); setDoc(ed.hist.pop()); ed.changed = true; ed.saved = false; }
+function redo() { if (!ed.redo.length) return; ed.hist.push(ed.doc); setDoc(ed.redo.pop()); ed.changed = true; ed.saved = false; }
+
+async function applyRemove() {
+  if (!ed.mask || ed.maskEmpty) return toast('Paint over the watermark first');
+  busy(true, 'Removing…'); await nextFrame();
+  try {
+    const d = cloneCanvas(ed.doc), W = d.width, H = d.height, x = d.getContext('2d', { willReadFrequently: true });
+    if (ed.method === 'blur' || ed.method === 'pixelate') {
+      const fx = mkCanvas(W, H), fc = fx.getContext('2d');
+      if (ed.method === 'blur') { fc.filter = `blur(${Math.max(6, Math.min(W, H) / 120)}px)`; fc.drawImage(d, 0, 0); fc.filter = 'none'; }
+      else { const k = Math.max(6, Math.round(Math.min(W, H) / 90)), sm = mkCanvas(W / k, H / k); sm.getContext('2d').drawImage(d, 0, 0, sm.width, sm.height); fc.imageSmoothingEnabled = false; fc.drawImage(sm, 0, 0, W, H); }
+      fc.globalCompositeOperation = 'destination-in'; fc.drawImage(ed.mask, 0, 0);
+      x.drawImage(fx, 0, 0);
+    } else {
+      const ma = ed.mask.getContext('2d').getImageData(0, 0, W, H).data;
+      inpaint(x, W, H, ma, ed.method === 'smart');
+    }
+    commit(d); clearMask();
+  } catch (e) { console.error(e); toast('Remove failed: ' + e.message); }
+  busy(false); imgDraw();
+}
+function applyCrop() {
+  const r = ed.crop; if (!r) return;
+  const c = mkCanvas(r.w, r.h); c.getContext('2d').drawImage(ed.doc, Math.round(r.x), Math.round(r.y), Math.round(r.w), Math.round(r.h), 0, 0, c.width, c.height);
+  commit(c); toast(`Cropped to ${c.width} × ${c.height}`);
+}
+function applyAdjust() {
+  if (!adjActive(ed.adj)) return;
+  const a = ed.adj; ed.adj = adjDefault();
+  commit(renderAdjusted(ed.doc, ed.doc.width, ed.doc.height, a, 1));
+}
+function rotate(deg) {
+  const d = ed.doc, sw = deg !== 180, c = mkCanvas(sw ? d.height : d.width, sw ? d.width : d.height), x = c.getContext('2d');
+  x.translate(c.width / 2, c.height / 2); x.rotate(deg * Math.PI / 180); x.drawImage(d, -d.width / 2, -d.height / 2);
+  commit(c);
+}
+function flip(dir) {
+  const d = ed.doc, c = mkCanvas(d.width, d.height), x = c.getContext('2d');
+  if (dir === 'h') { x.translate(d.width, 0); x.scale(-1, 1); } else { x.translate(0, d.height); x.scale(1, -1); }
+  x.drawImage(d, 0, 0); commit(c);
+}
+function resizeDoc(w, h) {
+  w = Math.round(w); h = Math.round(h);
+  if (!(w > 0 && h > 0) || w > 16384 || h > 16384) return toast('Enter a size between 1 and 16384');
+  let src = ed.doc;
+  while (src.width / 2 >= w && src.height / 2 >= h) { const t = mkCanvas(src.width / 2, src.height / 2), tx = t.getContext('2d'); tx.imageSmoothingQuality = 'high'; tx.drawImage(src, 0, 0, t.width, t.height); src = t; }
+  const c = mkCanvas(w, h), x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(src, 0, 0, w, h);
+  commit(c); toast(`Resized to ${w} × ${h}`);
+}
+const MIME = { png: 'image/png', jpeg: 'image/jpeg', webp: 'image/webp' };
+async function saveImage(mode) {
+  if (ed.tool === 'adjust' && adjActive(ed.adj)) applyAdjust();
+  const f = ed.f;
+  let doc = ed.doc, fmt = ed.fmt;
+  if (mode === 'overwrite') {
+    const e0 = extOf(f.base).toLowerCase(), map = { png: 'png', jpg: 'jpeg', jpeg: 'jpeg', jfif: 'jpeg', webp: 'webp' };
+    if (!map[e0]) return toast(`Can't overwrite .${e0} files — use Save copy instead`);
+    if (!f._handle) return toast('Overwrite needs the folder opened with “Load folder” (Chrome / Edge)', 3200);
+    if (!confirm(`Overwrite the original “${f.base}”? This cannot be undone.`)) return;
+    fmt = map[e0];
+  }
+  if (fmt === 'jpeg') { const c = mkCanvas(doc.width, doc.height), x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(doc, 0, 0); doc = c; }
+  const blob = await toBlob(doc, MIME[fmt], ed.q / 100);
+  if (!blob) return toast('Could not encode image');
+  const fname = ($('edName').value.trim() || 'edited').replace(/[\\/:*?"<>|]/g, '_') + '.' + (fmt === 'jpeg' ? 'jpg' : fmt);
+  if (mode === 'download') { download(blob, fname); ed.saved = true; return toast('Downloaded ' + fname); }
+  if (mode === 'overwrite') {
+    if (!await ensureWrite()) return;
+    const w = await f._handle.createWritable(); await w.write(blob); await w.close();
+    moveRating(f, f.name, blob.size);
+    closeEditor(true); await loadHandle(f.name); return toast('Original overwritten');
+  }
+  const path = await saveToFolder(blob, fname, f);
+  if (path) { closeEditor(true); await loadHandle(path); toast('Saved ' + path.split('/').pop()); }
+  else ed.saved = true;
+}
+
+// =====================================================================
+// VIDEO EDITOR (trim · join · watermark removal · export)
+// =====================================================================
+const pickMime = audio => {
+  const list = audio
+    ? ['video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
+    : ['video/mp4;codecs=avc1', 'video/mp4;codecs=avc1.640028', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+  return window.MediaRecorder ? list.find(m => MediaRecorder.isTypeSupported(m)) : null;
+};
+const clipLen = c => Math.max(0, c.out - c.in);
+const even = v => Math.max(2, Math.round(v / 2) * 2);
+function contentRect(sw, sh, W, H) { const s = Math.min(W / sw, H / sh), w = sw * s, h = sh * s; return { x: (W - w) / 2, y: (H - h) / 2, w, h }; }
+function drawFrame(ctx, src, sw, sh, W, H, boxes, method) {
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  if (!sw || !sh) return;
+  const r = contentRect(sw, sh, W, H);
+  ctx.drawImage(src, r.x, r.y, r.w, r.h);
+  for (const b of boxes) removeRect(ctx, r.x + b.x * r.w, r.y + b.y * r.h, b.w * r.w, b.h * r.h, method);
+}
+
+async function openVideoEditor(items) {
+  items = items.filter(Boolean); if (!items.length) return;
+  toast('Opening editor…');
+  await Promise.all(items.map(ensureMeta));
+  const v = document.createElement('video'); v.playsInline = true; v.preload = 'auto';
+  ed = { kind: 'video', v, img: null, clips: items.map(f => ({ f, in: 0, out: f.type === 'video' ? (f.dur || 0) : 3 })), ci: 0,
+    boxes: [], selBox: -1, method: 'smooth', preview: true, dirty: true, pc: mkCanvas(2, 2), out: { size: 'orig', fps: 30, mbps: 'auto', audio: true } };
+  ed.pcx = ed.pc.getContext('2d', { willReadFrequently: true });
+  const one = items.length === 1;
+  $('edTitle').textContent = one ? '🎬 ' + items[0].base : `🎬 Join ${items.length} clips`;
+  $('edTopTools').innerHTML = `<button class="btn" id="edMuteV" title="Mute preview (M)"></button>`;
+  $('edSide').innerHTML = `
+    <div class="sec"><h4>Clips · output order</h4><div id="clipList"></div>
+      <div class="srow"><select id="addClip" style="flex:1"><option value="">＋ Add clip or image…</option></select></div>
+      <div class="dim" id="clipTotal"></div></div>
+    <div class="sec" id="trimSec"><h4>Trim selected clip</h4>
+      <div class="srow" id="trimVid">In <input type="number" id="inT" step="0.01" min="0"> Out <input type="number" id="outT" step="0.01" min="0"><span class="dim" id="trimLen"></span></div>
+      <div class="srow" id="trimImg">Show image for <input type="number" id="imgDur" step="0.5" min="0.5" max="600"> s</div>
+      <div class="hint">Use <b>[ Set In</b> / <b>Set Out ]</b> under the video (or keys I / O) to mark the part to keep.</div></div>
+    <div class="sec"><h4>Remove watermark / logo</h4>
+      <div class="hint">Drag a box over the watermark on the video. Boxes apply to every clip. Drag a box to move it; drag its corner to resize.</div>
+      <div class="srow"><span style="width:60px">Method</span><select id="vMethod"><option value="smooth">✨ Smooth fill</option><option value="blur">Blur</option><option value="pixelate">Pixelate</option></select></div>
+      <label class="srow"><input type="checkbox" id="vPreview" checked> Preview removal</label>
+      <div id="boxList"></div></div>
+    <div class="sec"><h4>Output</h4>
+      <div class="srow"><span style="width:60px">Size</span><select id="oSize"><option value="orig">Original</option><option value="2160">2160p (4K)</option><option value="1440">1440p</option><option value="1080">1080p</option><option value="720">720p</option><option value="480">480p</option></select></div>
+      <div class="srow"><span style="width:60px">FPS</span><select id="oFps"><option>24</option><option>25</option><option selected>30</option><option>50</option><option>60</option></select></div>
+      <div class="srow"><span style="width:60px">Quality</span><select id="oMbps"><option value="auto">Auto</option><option value="4">4 Mbps</option><option value="8">8 Mbps</option><option value="12">12 Mbps</option><option value="20">20 Mbps</option><option value="40">40 Mbps</option></select></div>
+      <label class="srow"><input type="checkbox" id="oAudio" checked> Keep audio</label>
+      <div class="dim" id="oInfo"></div>
+      <div class="hint">Export re-encodes in real time (a 15 s clip takes ~15 s). Keep this tab visible while exporting.</div></div>`;
+  $('edFoot').innerHTML = `
+    <label class="dim">File name</label><input type="text" id="edName" style="width:300px" spellcheck="false">
+    <span class="dim" id="edFmtLbl"></span>
+    <span style="margin-left:auto"></span>
+    <button class="btn" id="vDownload">⬇ Export &amp; download</button>
+    <button class="btn primary" id="vSave">💾 Export &amp; save to folder</button>`;
+  $('edName').value = one ? stem(items[0].base) + '_edit' : `joined_${stem(items[0].base)}_+${items.length - 1}`;
+  const add = $('addClip');
+  all.filter(f => f.type === 'video').concat(all.filter(f => f.type === 'image')).forEach(f => add.add(new Option((f.type === 'video' ? '🎬 ' : '🖼 ') + f.name, f.name)));
+  add.onchange = async () => { const f = all.find(x => x.name === add.value); add.value = ''; if (!f) return; await ensureMeta(f); ed.clips.push({ f, in: 0, out: f.type === 'video' ? f.dur : 3 }); renderClips(); };
+  $('inT').onchange = () => { const c = ed.clips[ed.ci]; c.in = clamp(+$('inT').value, 0, c.out - 0.05); renderTrim(); seekV(c.in); };
+  $('outT').onchange = () => { const c = ed.clips[ed.ci]; c.out = clamp(+$('outT').value, c.in + 0.05, c.f.dur || c.out); renderTrim(); seekV(c.out); };
+  $('imgDur').onchange = () => { const c = ed.clips[ed.ci]; c.out = clamp(+$('imgDur').value || 3, 0.5, 600); renderTrim(); };
+  $('vMethod').onchange = e => { ed.method = e.target.value; ed.dirty = true; };
+  $('vPreview').onchange = e => { ed.preview = e.target.checked; ed.dirty = true; };
+  $('oSize').onchange = e => { ed.out.size = e.target.value; outInfo(); ed.dirty = true; };
+  $('oFps').onchange = e => { ed.out.fps = +e.target.value; outInfo(); };
+  $('oMbps').onchange = e => { ed.out.mbps = e.target.value; outInfo(); };
+  $('oAudio').onchange = e => { ed.out.audio = e.target.checked; outInfo(); };
+  $('vSave').onclick = () => exportVideo(true);
+  $('vDownload').onclick = () => exportVideo(false);
+  $('edMuteV').onclick = () => { prefs.muted = !prefs.muted; v.muted = prefs.muted; savePrefs(); vSync(); };
+  showEditor(); $('edTransport').hidden = false;
+  v.muted = prefs.muted;
+  v.onseeked = v.onloadeddata = () => ed && (ed.dirty = true);
+  renderClips(); loadClip(0); outInfo(); vSync();
+  ed.raf = requestAnimationFrame(vidLoop);
+}
+function vSync() {
+  if (!ed || ed.kind !== 'video') return;
+  $('edMuteV').textContent = prefs.muted ? '🔇 Preview muted' : '🔊 Preview sound';
+  $('edPlay').textContent = ed.v.paused ? '▶' : '⏸';
+}
+function outSize() {
+  const f = ed.clips[0].f, bw = f.w || 1280, bh = f.h || 720;
+  if (ed.out.size === 'orig') return { W: even(bw), H: even(bh) };
+  const s = +ed.out.size / Math.min(bw, bh); return { W: even(bw * s), H: even(bh * s) };
+}
+const mbpsFor = (W, H, fps, q) => q === 'auto' ? clamp(W * H * fps * 0.13 / 1e6, 3, 60) : +q;
+function outInfo() {
+  const { W, H } = outSize(), m = pickMime(ed.out.audio), total = ed.clips.reduce((s, c) => s + clipLen(c), 0);
+  $('oInfo').textContent = `${W} × ${H} · ${ed.out.fps} fps · ${mbpsFor(W, H, ed.out.fps, ed.out.mbps).toFixed(1)} Mbps · ≈ ${fmtSize(total * mbpsFor(W, H, ed.out.fps, ed.out.mbps) * 125000)}`;
+  $('edFmtLbl').textContent = m ? (m.includes('mp4') ? '→ .mp4' : '→ .webm (this browser can’t record MP4)') : 'Recording not supported in this browser';
+  $('clipTotal').textContent = `Total length: ${fmtT(total)} · ${ed.clips.length} clip(s)`;
+}
+function renderClips() {
+  const L = $('clipList'); L.innerHTML = '';
+  ed.clips.forEach((c, i) => {
+    const d = document.createElement('div'); d.className = 'clip' + (i === ed.ci ? ' cur' : '');
+    d.innerHTML = `<span class="dim">${i + 1}</span><span class="cn"></span><span class="dim cl"></span><button class="btn sm" data-a="up" title="Move up">▲</button><button class="btn sm" data-a="down" title="Move down">▼</button><button class="btn sm" data-a="del" title="Remove from list">✕</button>`;
+    d.querySelector('.cn').textContent = (c.f.type === 'image' ? '🖼 ' : '') + c.f.base; d.querySelector('.cn').title = c.f.name;
+    d.querySelector('.cl').textContent = clipLen(c).toFixed(1) + 's';
+    d.onclick = e => {
+      const a = e.target.dataset?.a, curClip = ed.clips[ed.ci];
+      if (!a) { if (i !== ed.ci) loadClip(i); return; }
+      if (a === 'up' && i > 0) [ed.clips[i - 1], ed.clips[i]] = [ed.clips[i], ed.clips[i - 1]];
+      if (a === 'down' && i < ed.clips.length - 1) [ed.clips[i + 1], ed.clips[i]] = [ed.clips[i], ed.clips[i + 1]];
+      if (a === 'del') { if (ed.clips.length === 1) return toast('Keep at least one clip'); ed.clips.splice(i, 1); }
+      const ni = ed.clips.indexOf(curClip);
+      if (ni < 0) loadClip(Math.min(i, ed.clips.length - 1)); else { ed.ci = ni; renderClips(); }
+      outInfo(); ed.dirty = true;
+    };
+    L.appendChild(d);
+  });
+  outInfo();
+}
+function loadClip(i) {
+  ed.ci = i; const c = ed.clips[i], v = ed.v;
+  v.pause(); ed.img = null;
+  if (c.f.type === 'video') {
+    v.src = c.f.url;
+    v.onloadedmetadata = () => { if (!c.out) c.out = v.duration; v.currentTime = c.in; $('edTl').max = v.duration; renderTrim(); ed.dirty = true; };
+  } else {
+    v.removeAttribute('src'); v.load();
+    loadImg(c.f.url).then(img => { if (ed && ed.clips[ed.ci] === c) { ed.img = img; ed.dirty = true; } });
+  }
+  ['edPlay', 'edTl', 'edSetIn', 'edSetOut', 'edToIn', 'edToOut'].forEach(id => $(id).disabled = c.f.type !== 'video');
+  renderClips(); renderTrim(); ed.dirty = true;
+}
+function renderTrim() {
+  const c = ed.clips[ed.ci], isV = c.f.type === 'video';
+  $('trimVid').style.display = isV ? '' : 'none'; $('trimImg').style.display = isV ? 'none' : '';
+  $('inT').value = c.in.toFixed(2); $('outT').value = c.out.toFixed(2); $('imgDur').value = c.out;
+  $('trimLen').textContent = `= ${clipLen(c).toFixed(2)}s`;
+  const D = c.f.dur || 1;
+  $('tlRange').style.left = (isV ? c.in / D * 100 : 0) + '%'; $('tlRange').style.width = (isV ? clipLen(c) / D * 100 : 0) + '%';
+  renderClipLens(); outInfo();
+}
+function renderClipLens() { $('clipList').querySelectorAll('.cl').forEach((el, i) => el.textContent = clipLen(ed.clips[i]).toFixed(1) + 's'); }
+function seekV(t) { const v = ed.v; if (v.src) { v.currentTime = clamp(t, 0, v.duration || t); ed.dirty = true; } }
+function vidPlay() {
+  const v = ed.v, c = ed.clips[ed.ci]; if (c.f.type !== 'video') return;
+  if (v.paused) { if (v.currentTime >= c.out - 0.04 || v.currentTime < c.in) v.currentTime = c.in; v.play().catch(() => {}); } else v.pause();
+  setTimeout(vSync, 0);
+}
+function setIn() { const c = ed.clips[ed.ci]; if (c.f.type !== 'video') return; c.in = Math.min(ed.v.currentTime, c.out - 0.05); renderTrim(); toast('In: ' + fmtT(c.in)); }
+function setOut() { const c = ed.clips[ed.ci]; if (c.f.type !== 'video') return; c.out = Math.max(ed.v.currentTime, c.in + 0.05); renderTrim(); toast('Out: ' + fmtT(c.out)); }
+$('edPlay').onclick = () => vidPlay();
+$('edSetIn').onclick = () => setIn();
+$('edSetOut').onclick = () => setOut();
+$('edToIn').onclick = () => seekV(ed.clips[ed.ci].in);
+$('edToOut').onclick = () => seekV(ed.clips[ed.ci].out);
+$('edTl').oninput = e => seekV(+e.target.value);
+
+function curSrc() {
+  const c = ed.clips[ed.ci];
+  if (c.f.type === 'video') { const v = ed.v; return v.readyState >= 2 ? [v, v.videoWidth, v.videoHeight] : null; }
+  return ed.img ? [ed.img, ed.img.naturalWidth, ed.img.naturalHeight] : null;
+}
+function vidDraw() {
+  const k = dpr(), { SW, SH } = edSize(), { W, H } = outSize();
+  edX.setTransform(k, 0, 0, k, 0, 0); edX.clearRect(0, 0, SW, SH);
+  const s = Math.min((SW - 24) / W, (SH - 24) / H), pw = W * s, ph = H * s, px = (SW - pw) / 2, py = (SH - ph) / 2;
+  const src = curSrc(); if (!src) return;
+  const [el, sw, sh] = src, cw = Math.max(2, Math.round(pw * k)), ch = Math.max(2, Math.round(ph * k));
+  if (ed.pc.width !== cw || ed.pc.height !== ch) { ed.pc.width = cw; ed.pc.height = ch; }
+  drawFrame(ed.pcx, el, sw, sh, cw, ch, ed.preview ? ed.boxes : [], ed.method);
+  edX.drawImage(ed.pc, px, py, pw, ph);
+  const r = contentRect(sw, sh, W, H);
+  ed.cr = { x: px + r.x * s, y: py + r.y * s, w: r.w * s, h: r.h * s };
+  ed.boxes.forEach((b, i) => {
+    const x = ed.cr.x + b.x * ed.cr.w, y = ed.cr.y + b.y * ed.cr.h, w = b.w * ed.cr.w, h = b.h * ed.cr.h;
+    edX.setLineDash([6, 4]); edX.lineWidth = 1.5; edX.strokeStyle = i === ed.selBox ? '#4da3ff' : '#ffcc00'; edX.strokeRect(x, y, w, h); edX.setLineDash([]);
+    edX.fillStyle = edX.strokeStyle; edX.fillRect(x + w - 5, y + h - 5, 10, 10);
+  });
+  $('edInfo').textContent = `${W} × ${H} output`;
+}
+function vidLoop() {
+  if (!ed || ed.kind !== 'video') return;
+  const v = ed.v, c = ed.clips[ed.ci];
+  if (c && c.f.type === 'video' && !v.paused) {
+    if (v.currentTime >= c.out) { v.pause(); v.currentTime = c.out; vSync(); }
+    ed.dirty = true;
+  }
+  if (ed.dirty && !ed.busy) {
+    ed.dirty = false; vidDraw();
+    if (c?.f.type === 'video') { $('edTl').value = v.currentTime; $('edTime').textContent = `${fmtT(v.currentTime)} / ${fmtT(v.duration || 0)}`; }
+    else $('edTime').textContent = `image · ${clipLen(c).toFixed(1)}s`;
+  }
+  ed.raf = requestAnimationFrame(vidLoop);
+}
+function renderBoxes() {
+  const L = $('boxList'); L.innerHTML = '';
+  ed.boxes.forEach((b, i) => {
+    const d = document.createElement('div'); d.className = 'clip' + (i === ed.selBox ? ' cur' : '');
+    d.innerHTML = `<span class="cn">Box ${i + 1} · ${Math.round(b.x * 100)}%, ${Math.round(b.y * 100)}% · ${Math.round(b.w * 100)}×${Math.round(b.h * 100)}%</span><button class="btn sm" title="Delete box">✕</button>`;
+    d.onclick = e => { if (e.target.tagName === 'BUTTON') { ed.boxes.splice(i, 1); ed.selBox = -1; } else ed.selBox = i; renderBoxes(); ed.dirty = true; };
+    L.appendChild(d);
+  });
+  if (ed.boxes.length > 1) { const b = document.createElement('button'); b.className = 'btn sm'; b.textContent = 'Clear all boxes'; b.onclick = () => { ed.boxes = []; ed.selBox = -1; renderBoxes(); ed.dirty = true; }; L.appendChild(b); }
+}
+function vidDown(e) {
+  if (!ed.cr || ed.busy) return;
+  const p = evPt(e), cr = ed.cr, n = { x: (p.sx - cr.x) / cr.w, y: (p.sy - cr.y) / cr.h };
+  const corner = ed.boxes.findIndex(b => Math.abs(cr.x + (b.x + b.w) * cr.w - p.sx) < 10 && Math.abs(cr.y + (b.y + b.h) * cr.h - p.sy) < 10);
+  const hit = ed.boxes.findIndex(b => n.x >= b.x && n.x <= b.x + b.w && n.y >= b.y && n.y <= b.y + b.h);
+  if (corner >= 0) { ed.selBox = corner; ed.drag = { type: 'resize', i: corner }; }
+  else if (hit >= 0) { ed.selBox = hit; ed.drag = { type: 'move', i: hit, dx: n.x - ed.boxes[hit].x, dy: n.y - ed.boxes[hit].y }; }
+  else { ed.boxes.push({ x: clamp(n.x, 0, 1), y: clamp(n.y, 0, 1), w: 0, h: 0 }); ed.selBox = ed.boxes.length - 1; ed.drag = { type: 'new', i: ed.selBox, x0: clamp(n.x, 0, 1), y0: clamp(n.y, 0, 1) }; }
+  ed.dirty = true;
+}
+function vidMove(e) {
+  if (!ed.cr) return;
+  const p = evPt(e), cr = ed.cr, n = { x: clamp((p.sx - cr.x) / cr.w, 0, 1), y: clamp((p.sy - cr.y) / cr.h, 0, 1) }, g = ed.drag;
+  if (!g) {
+    const onCorner = ed.boxes.some(b => Math.abs(cr.x + (b.x + b.w) * cr.w - p.sx) < 10 && Math.abs(cr.y + (b.y + b.h) * cr.h - p.sy) < 10);
+    const onBox = ed.boxes.some(b => n.x >= b.x && n.x <= b.x + b.w && n.y >= b.y && n.y <= b.y + b.h);
+    edC.style.cursor = onCorner ? 'nwse-resize' : onBox ? 'move' : 'crosshair'; return;
+  }
+  const b = ed.boxes[g.i];
+  if (g.type === 'new') { b.x = Math.min(g.x0, n.x); b.y = Math.min(g.y0, n.y); b.w = Math.abs(n.x - g.x0); b.h = Math.abs(n.y - g.y0); }
+  else if (g.type === 'move') { b.x = clamp(n.x - g.dx, 0, 1 - b.w); b.y = clamp(n.y - g.dy, 0, 1 - b.h); }
+  else if (g.type === 'resize') { b.w = clamp(n.x - b.x, 0.005, 1 - b.x); b.h = clamp(n.y - b.y, 0.005, 1 - b.y); }
+  ed.dirty = true;
+}
+function vidUp() {
+  const g = ed.drag; ed.drag = null; if (!g) return;
+  if (g.type === 'new') {
+    const b = ed.boxes[g.i];
+    if (b.w * ed.cr.w < 5 || b.h * ed.cr.h < 5) { ed.boxes.splice(g.i, 1); ed.selBox = -1; vidPlay(); }
+  }
+  renderBoxes(); ed.dirty = true;
+}
+
+async function exportVideo(toFolder) {
+  if (ed.busy) return;
+  const clips = ed.clips.filter(c => clipLen(c) > 0.01);
+  if (!clips.length) return toast('Nothing to export');
+  const mime = pickMime(ed.out.audio);
+  if (!mime) return toast('This browser cannot record video — use Chrome or Edge');
+  const { W, H } = outSize(), fps = ed.out.fps, mbps = mbpsFor(W, H, fps, ed.out.mbps);
+  const total = clips.reduce((s, c) => s + clipLen(c), 0);
+  ed.v.pause(); vSync(); ed.busy = true; ed.cancel = false;
+  busy(true, 'Exporting…', true);
+  const c = mkCanvas(W, H), x = c.getContext('2d', { willReadFrequently: ed.boxes.length > 0 && ed.method === 'smooth' });
+  x.fillStyle = '#000'; x.fillRect(0, 0, W, H);
+  const stream = c.captureStream(fps);
+  let ac = null, dest = null;
+  if (ed.out.audio) { ac = new AudioContext(); await ac.resume(); dest = ac.createMediaStreamDestination(); stream.addTrack(dest.stream.getAudioTracks()[0]); }
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: Math.round(mbps * 1e6), audioBitsPerSecond: 192000 });
+  const chunks = []; rec.ondataavailable = e => e.data.size && chunks.push(e.data);
+  const stopped = new Promise(r => rec.onstop = r);
+  rec.start(1000); rec.pause();
+  let done = 0; const t0 = performance.now();
+  const sub = p => { const el = (performance.now() - t0) / 1000; return `${fmtT(p * total)} / ${fmtT(total)} · ${W}×${H} · ${p > 0.02 ? 'about ' + Math.max(0, Math.round(el / p - el)) + ' s left' : 'starting…'}`; };
+  try {
+    for (const [i, cl] of clips.entries()) {
+      if (ed.cancel) break;
+      const label = `Exporting clip ${i + 1} of ${clips.length}: ${cl.f.base}`;
+      if (cl.f.type === 'video') {
+        const v = document.createElement('video'); v.preload = 'auto'; v.playsInline = true; v.src = cl.f.url;
+        await once(v, 'loadedmetadata');
+        let node = null;
+        if (ac) { node = ac.createMediaElementSource(v); node.connect(dest); } else v.muted = true;
+        v.currentTime = cl.in; await once(v, 'seeked');
+        const draw = () => drawFrame(x, v, v.videoWidth, v.videoHeight, W, H, ed.boxes, ed.method);
+        draw(); rec.resume();
+        await new Promise(res => {
+          let fin = false; const end = () => { if (!fin) { fin = true; res(); } };
+          v.onended = end;
+          const tick = () => {
+            if (fin) return; draw();
+            const p = (done + v.currentTime - cl.in) / total; setProg(p, label, sub(p));
+            if (ed.cancel || v.currentTime >= cl.out) return end();
+            rvfc(v, tick);
+          };
+          v.play().catch(() => { v.muted = true; return v.play(); }).then(() => rvfc(v, tick), end);
+        });
+        v.pause(); rec.pause(); node?.disconnect(); v.removeAttribute('src'); v.load();
+      } else {
+        const img = await loadImg(cl.f.url);
+        const draw = () => drawFrame(x, img, img.naturalWidth, img.naturalHeight, W, H, ed.boxes, ed.method);
+        draw(); rec.resume();
+        const st = performance.now(), dur = clipLen(cl) * 1000;
+        await new Promise(res => {
+          const tick = () => { const el = performance.now() - st; draw(); const p = (done + el / 1000) / total; setProg(p, label, sub(p)); if (ed.cancel || el >= dur) return res(); requestAnimationFrame(tick); };
+          requestAnimationFrame(tick);
+        });
+        rec.pause();
+      }
+      done += clipLen(cl);
+    }
+  } catch (err) { console.error(err); toast('Export failed: ' + err.message, 4000); ed.cancel = true; }
+  if (rec.state !== 'inactive') rec.stop();
+  await stopped; stream.getTracks().forEach(t => t.stop()); ac?.close();
+  ed.busy = false; busy(false); ed.dirty = true;
+  if (ed.cancel) return toast('Export cancelled');
+  const blob = new Blob(chunks, { type: mime.split(';')[0] });
+  const fname = ($('edName').value.trim() || 'export').replace(/[\\/:*?"<>|]/g, '_') + (mime.includes('mp4') ? '.mp4' : '.webm');
+  if (!toFolder) { download(blob, fname); return toast(`Exported ${fname} · ${fmtSize(blob.size)}`, 3000); }
+  const path = await saveToFolder(blob, fname, clips[0].f);
+  if (path) { closeEditor(true); await loadHandle(path); toast(`Saved ${path.split('/').pop()} · ${fmtSize(blob.size)}`, 3000); }
+}
+
+// =====================================================================
+// WIRING
+// =====================================================================
+function init() {
+  root.style.setProperty('--tw', prefs.tw + 'px');
+  root.style.setProperty('--side', prefs.side + 'px');
+  $('size').value = prefs.tw; $('sort').value = prefs.sort; $('hover').value = prefs.hover;
+  $('kind').value = prefs.kind; $('minRate').value = prefs.minRate; $('speed').value = String(prefs.speed);
+  $('slideSec').value = prefs.slideSec;
+  syncButtons();
+}
+init();
+
+$('openBtn').onclick = async () => {
+  if (window.showDirectoryPicker) {
+    try { dirHandle = await showDirectoryPicker({ mode: 'read' }); toast('Scanning…'); await loadHandle(); toast(`Loaded ${all.length} files`); return; }
+    catch (e) { if (e.name === 'AbortError') return; }
+  }
+  $('picker').click();
+};
+$('picker').onchange = e => { dirHandle = null; load(e.target.files); e.target.value = ''; toast('Opened read-only — editing files in place needs Chrome / Edge “Load folder”', 3500); };
+$('rescanBtn').onclick = async () => { if (!dirHandle) return toast('Rescan needs a folder opened with Load folder (Chrome / Edge)'); await loadHandle(); toast(`Rescanned · ${all.length} files`); };
+$('filter').oninput = render;
+$('kind').onchange = e => { prefs.kind = e.target.value; savePrefs(); render(); };
+$('folder').onchange = render;
+$('minRate').onchange = e => { prefs.minRate = +e.target.value; savePrefs(); render(); };
+$('sort').onchange = e => { prefs.sort = e.target.value; savePrefs(); render(); shown[cur]?.el.scrollIntoView({ block: 'nearest' }); };
+$('dirBtn').onclick = () => { prefs.dir *= -1; savePrefs(); syncButtons(); render(); };
+$('viewBtn').onclick = () => { prefs.view = prefs.view === 'grid' ? 'list' : 'grid'; savePrefs(); syncButtons(); shown[cur]?.el.scrollIntoView({ block: 'nearest' }); };
+$('size').oninput = e => { prefs.tw = +e.target.value; root.style.setProperty('--tw', prefs.tw + 'px'); savePrefs(); };
+$('hover').onchange = e => { prefs.hover = e.target.value; savePrefs(); };
+$('copyListBtn').onclick = () => { const l = sel.size ? targets() : shown; copyText(l.map(f => f.base).join('\n')); toast(`Copied ${l.length} names`); };
+$('helpBtn').onclick = () => $('help').classList.add('show');
+$('help').onclick = e => { if (e.target.id === 'help') $('help').classList.remove('show'); };
+$('prevBtn').onclick = () => select(cur - 1);
+$('nextBtn').onclick = () => select(cur + 1);
+$('editBtn').onclick = edStartFromViewer;
+$('slideBtn').onclick = toggleSlide;
+$('slideSec').onchange = e => { prefs.slideSec = clamp(+e.target.value || 4, 1, 60); e.target.value = prefs.slideSec; savePrefs(); restartSlide(); };
+$('pinBtn').onclick = togglePin;
+$('loopBtn').onclick = () => { prefs.loop = !prefs.loop; savePrefs(); syncButtons(); };
+$('nextEndBtn').onclick = () => { prefs.autonext = !prefs.autonext; savePrefs(); syncButtons(); };
+$('muteBtn').onclick = () => { prefs.muted = !prefs.muted; const v = mainVideo(); if (v) v.muted = prefs.muted; savePrefs(); syncButtons(); };
+$('speed').onchange = e => applySpeed(+e.target.value);
+$('fBackBtn').onclick = () => step(-1);
+$('fFwdBtn').onclick = () => step(1);
+$('snapBtn').onclick = e => e.shiftKey ? copyFrame() : snapshot();
+$('renameBtn').onclick = () => openRename(targets());
+$('rejectBtn').onclick = () => rejectItems(targets());
+$('copyBtn').onclick = () => { const f = shown[cur]; if (f) { copyText(f.base); toast('Copied: ' + f.base); } };
+$('infoBtn').onclick = () => { prefs.info = !prefs.info; savePrefs(); syncButtons(); updateStatus(); };
+$('fsBtn').onclick = toggleFs;
+$('joinBtn').onclick = () => openVideoEditor(targets());
+$('stitchBtn').onclick = () => openStitch(targets());
+$('selRenameBtn').onclick = () => openRename(targets());
+$('selRejectBtn').onclick = () => rejectItems(targets());
+$('selClearBtn').onclick = () => { sel.clear(); updateSel(); };
+
+$('split').onpointerdown = e => {
+  const s = $('split'); s.setPointerCapture(e.pointerId); s.classList.add('drag');
+  s.onpointermove = ev => { prefs.side = clamp(ev.clientX, 180, innerWidth - 300); root.style.setProperty('--side', prefs.side + 'px'); };
+  s.onpointerup = () => { s.onpointermove = null; s.classList.remove('drag'); savePrefs(); };
+};
+
+// ---------- keyboard ----------
+const KEYS = [
+  ['← → / ↑ ↓', 'Previous / next (↑↓ by row)'], ['Home / End · PgUp / PgDn', 'First / last · jump rows'],
+  ['Space / K', 'Play / pause'], ['J / L', 'Back / forward 5 s'], [', / .', 'Previous / next frame'], ['[ / ]', 'Slower / faster'],
+  ['M · O · N', 'Mute · loop · auto-next'], ['P', 'Slideshow'], ['C', 'Pin for compare'], ['F', 'Fullscreen'], ['I · G', 'Info · grid/list'],
+  ['1 – 5 / 0', 'Rate / clear rating'], ['S / Shift+S', 'Save frame / copy frame'], ['Y', 'Copy file name'], ['+ / − / Z', 'Zoom (images)'],
+  ['E', 'Edit current / selected'], ['F2', 'Rename (batch if selected)'], ['Delete', 'Move to _rejected'], ['Ctrl+Z', 'Undo reject'],
+  ['Ctrl+click / Shift+click', 'Multi-select'], ['Ctrl+A', 'Select all visible'], ['/', 'Focus filter'], ['R', 'Rescan folder'], ['Esc', 'Clear / close / unpin'],
+];
+const ED_KEYS = [
+  ['R · C · A · T', 'Image tools: remove · crop · adjust · transform'], ['Enter', 'Apply current tool'], ['Ctrl+Z / Ctrl+Y', 'Undo / redo'],
+  ['Scroll · right-drag / Space+drag', 'Zoom · pan'], ['0', 'Fit to screen'], ['Ctrl+S', 'Save copy to folder'],
+  ['Space', 'Video: play / pause'], ['I / O', 'Video: set In / Out'], ['← / →', 'Video: frame step (Shift = 1 s)'], ['Home / End', 'Video: go to In / Out'], ['Esc', 'Close editor'],
+];
+const rows = list => list.map(([k, d]) => `<div class="row"><span>${d}</span><kbd>${k}</kbd></div>`).join('');
+$('helpRows').innerHTML = rows(KEYS); $('helpEdRows').innerHTML = rows(ED_KEYS);
+
+function edKey(e) {
+  const t = e.target, inField = (t.tagName === 'INPUT' && t.type !== 'range' && t.type !== 'checkbox') || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA';
+  if (e.key === 'Escape') { if (inField) return t.blur(); return closeEditor(); }
+  if (!ed) return;
+  const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
+  if (mod && k === 's') { e.preventDefault(); return ed.kind === 'image' ? saveImage('copy') : exportVideo(true); }
+  if (inField) return;
+  if (ed.kind === 'image') {
+    if (mod && k === 'z') { e.preventDefault(); return e.shiftKey ? redo() : undo(); }
+    if (mod && k === 'y') { e.preventDefault(); return redo(); }
+    if (mod) return;
+    if (e.key === ' ') { e.preventDefault(); ed.space = true; edC.style.cursor = 'grab'; return; }
+    const m = { r: () => setTool('remove'), c: () => setTool('crop'), a: () => setTool('adjust'), t: () => setTool('transform'),
+      enter: () => ({ remove: applyRemove, crop: applyCrop, adjust: applyAdjust })[ed.tool]?.(),
+      0: () => { imgFit(); imgDraw(); }, '[': () => { ed.brush = clamp(ed.brush - 5, 4, 250); $('edBrush').value = ed.brush; $('edBrushV').textContent = ed.brush; imgDraw(); },
+      ']': () => { ed.brush = clamp(ed.brush + 5, 4, 250); $('edBrush').value = ed.brush; $('edBrushV').textContent = ed.brush; imgDraw(); } };
+    if (m[k]) { e.preventDefault(); m[k](); }
+  } else {
+    if (mod || ed.busy) return;
+    const v = ed.v, c = ed.clips[ed.ci], st = e.shiftKey ? 1 : 1 / ed.out.fps;
+    const m = { ' ': vidPlay, k: vidPlay, i: setIn, o: setOut, home: () => seekV(c.in), end: () => seekV(c.out),
+      arrowleft: () => { v.pause(); seekV(v.currentTime - st); vSync(); }, arrowright: () => { v.pause(); seekV(v.currentTime + st); vSync(); },
+      m: () => $('edMuteV').click(), delete: () => { if (ed.selBox >= 0) { ed.boxes.splice(ed.selBox, 1); ed.selBox = -1; renderBoxes(); ed.dirty = true; } } };
+    if (m[k]) { e.preventDefault(); m[k](); }
+  }
+}
+document.addEventListener('keyup', e => { if (ed?.kind === 'image' && e.key === ' ') { ed.space = false; syncEdUI(); } });
+
+document.addEventListener('keydown', e => {
+  if (edOpen()) return edKey(e);
+  if (document.querySelector('dialog[open]')) return;
+  const tag = e.target.tagName;
+  if (e.key === 'Escape') {
+    if ($('help').classList.contains('show')) return $('help').classList.remove('show');
+    if (tag === 'INPUT' || tag === 'SELECT') return e.target.blur();
+    if (sel.size) { sel.clear(); return updateSel(); }
+    if (pinned) return togglePin();
+    return;
+  }
+  if (tag === 'INPUT' || tag === 'SELECT') return;
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.key.toLowerCase() === 'a') { e.preventDefault(); shown.forEach(f => sel.add(f)); return updateSel(); }
+  if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); return undoReject(); }
+  if (mod || e.altKey) return;
+  const v = mainVideo(), pz = mainPane()?.zoom, k = e.key;
+  const map = {
+    ArrowRight: () => select(cur + 1), ArrowLeft: () => select(cur - 1),
+    ArrowDown: () => select(Math.min(cur + cols(), shown.length - 1)), ArrowUp: () => select(Math.max(cur - cols(), 0)),
+    PageDown: () => select(Math.min(cur + cols() * 3, shown.length - 1)), PageUp: () => select(Math.max(cur - cols() * 3, 0)),
+    Home: () => select(0), End: () => select(shown.length - 1),
+    ' ': () => v && (v.paused ? v.play() : v.pause()), k: () => v && (v.paused ? v.play() : v.pause()),
+    j: () => seek(-5), l: () => seek(5), ',': () => step(-1), '.': () => step(1),
+    '[': () => setSpeed(-1), ']': () => setSpeed(1),
+    m: () => $('muteBtn').click(), o: () => { $('loopBtn').click(); toast(prefs.loop ? 'Loop on' : 'Loop off'); },
+    n: () => { $('nextEndBtn').click(); toast(prefs.autonext ? 'Auto-next on' : 'Auto-next off'); },
+    p: toggleSlide, c: togglePin, f: toggleFs, i: () => $('infoBtn').click(), g: () => $('viewBtn').click(),
+    s: snapshot, S: copyFrame, y: () => $('copyBtn').click(), r: () => $('rescanBtn').click(),
+    e: edStartFromViewer, F2: () => openRename(targets()), Delete: () => rejectItems(targets()),
+    '+': () => pz?.in(), '=': () => pz?.in(), '-': () => pz?.out(), z: () => pz?.fit(),
+    '/': () => $('filter').focus(), '?': () => $('help').classList.toggle('show'),
+  };
+  for (let n = 0; n <= 5; n++) map[String(n)] = () => setRating(shown[cur], n);
+  const fn = map[k] || map[k.toLowerCase()];
+  if (fn && (shown.length || '/?r'.includes(k))) { e.preventDefault(); fn(); }
+});
+document.addEventListener('copy', e => {
+  const f = shown[cur];
+  if (f && !edOpen() && !getSelection().toString() && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+    e.preventDefault(); e.clipboardData.setData('text/plain', f.base); toast('Copied: ' + f.base);
+  }
+});
+
+// ---------- drag & drop ----------
+let dragDepth = 0;
+addEventListener('dragenter', e => { if (edOpen()) return; e.preventDefault(); dragDepth++; $('drop').style.display = 'flex'; });
+addEventListener('dragleave', () => { if (--dragDepth <= 0) $('drop').style.display = 'none'; });
+addEventListener('dragover', e => e.preventDefault());
+addEventListener('drop', async e => {
+  e.preventDefault(); dragDepth = 0; $('drop').style.display = 'none';
+  if (edOpen()) return;
+  const items = [...e.dataTransfer.items].filter(i => i.kind === 'file');
+  if (items.length === 1 && items[0].getAsFileSystemHandle) {
+    const hp = items[0].getAsFileSystemHandle(), entry = items[0].webkitGetAsEntry?.();
+    try { const h = await hp; if (h?.kind === 'directory') { dirHandle = h; toast('Scanning…'); await loadHandle(); return toast(`Loaded ${all.length} files`); } } catch {}
+    if (entry) { const out = []; await walkEntry(entry, out); dirHandle = null; return load(out); }
+  }
+  const entries = items.map(i => i.webkitGetAsEntry?.()).filter(Boolean), out = [];
+  for (const en of entries) await walkEntry(en, out);
+  dirHandle = null; load(out);
+});
+</script>
+</body>
+</html>
