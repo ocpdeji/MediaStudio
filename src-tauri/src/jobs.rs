@@ -1,7 +1,7 @@
 //! Persistent job queue: queued → running → done | failed | cancelled (| interrupted after a crash/exit).
 use crate::db::{self, now_ms};
 use crate::export::{self, Built, JoinInput, Preset, Project, QuickEdit};
-use crate::{ai, media, ops, scan, thumbs};
+use crate::{ai, byok, editmedia, media, models, ops, projects, render, scan, speech, thumbs};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -27,11 +27,24 @@ pub enum JobSpec {
     CopyTo { asset_ids: Vec<i64>, dest: String, mode: String },
     Upscale { asset_id: i64, scale: u32, model: String, cpu: bool, out_dir: Option<String> },
     Hashes { asset_ids: Vec<i64> },
+    // ---- editor
+    Optimize { path: String },
+    AudioFx { path: String, fx: render::AudioFx },
+    Reverse { path: String },
+    Stabilize { path: String, strength: u32 },
+    Transcribe { spec: speech::TranscribeSpec },
+    InstallModel { id: String },
+    Tts { provider: String, voice: String, text: String, speed: f64, project: String },
+    AiImage { provider: String, prompt: String, aspect: String, project: String },
+    AiVideo { provider: String, prompt: String, aspect: String, seconds: u32, image: Option<String>, project: String },
+    StockDownload { url: String, name: String },
 }
 impl JobSpec {
     fn kind(&self) -> &'static str {
         match self { JobSpec::Quick { .. } => "export", JobSpec::Join { .. } => "join", JobSpec::ExtractAudio { .. } => "audio", JobSpec::Proxy { .. } => "proxy", JobSpec::Render { .. } => "render",
-            JobSpec::Convert { .. } => "convert", JobSpec::ImageBatch { .. } => "images", JobSpec::CopyTo { .. } => "copy", JobSpec::Upscale { .. } => "upscale", JobSpec::Hashes { .. } => "analyse" }
+            JobSpec::Convert { .. } => "convert", JobSpec::ImageBatch { .. } => "images", JobSpec::CopyTo { .. } => "copy", JobSpec::Upscale { .. } => "upscale", JobSpec::Hashes { .. } => "analyse",
+            JobSpec::Optimize { .. } => "prepare", JobSpec::AudioFx { .. } => "audiofx", JobSpec::Reverse { .. } => "reverse", JobSpec::Stabilize { .. } => "stabilize",
+            JobSpec::Transcribe { .. } => "captions", JobSpec::InstallModel { .. } => "download", JobSpec::Tts { .. } => "voiceover", JobSpec::AiImage { .. } | JobSpec::AiVideo { .. } => "ai", JobSpec::StockDownload { .. } => "stock" }
     }
 }
 
@@ -54,7 +67,7 @@ fn get(c: &Connection, id: i64) -> Option<JobRow> { c.query_row(&format!("SELECT
 #[derive(Serialize, Default)]
 struct Outcome { outputs: Vec<String>, notes: Vec<String>, batch: Option<String> }
 
-pub struct Ctx { pub app: AppHandle, pub db_path: PathBuf, pub cache_dir: PathBuf, pub data_dir: PathBuf }
+pub struct Ctx { pub app: AppHandle, pub db_path: PathBuf, pub cache_dir: PathBuf, pub data_dir: PathBuf, pub projects_root: PathBuf }
 
 #[derive(Clone)]
 pub struct Jobs { inner: Arc<Inner> }
@@ -294,11 +307,167 @@ fn execute(ctx: &Ctx, c: &Connection, id: i64, spec: &JobSpec, cancel: &Arc<Atom
                     progress((i + 1) as f64 / n);
                 }
             }
+            JobSpec::Optimize { path } => {
+                let src = PathBuf::from(path);
+                let info = editmedia::info(&ctx.cache_dir, &src)?;
+                let target = editmedia::optimized_path(&ctx.cache_dir, &info.path, info.size, info.mtime, &info.kind);
+                if !target.is_file() {
+                    std::fs::create_dir_all(target.parent().unwrap()).map_err(|e| e.to_string())?;
+                    let ext = target.extension().unwrap().to_string_lossy().into_owned();
+                    let tmp = target.with_extension(format!("partial.{ext}"));
+                    check_space(target.parent().unwrap(), info.size * 3 + 50 * 1_048_576)?;
+                    let args = editmedia::optimize_args(&src, &info, &tmp, &caps.hw_verified);
+                    let r = export::run_ffmpeg(&args, info.duration_us.max(1), None, cancel, progress);
+                    // a GPU encoder can fail on unusual sizes — retry once on the CPU
+                    let r = match r { Err(e) if e != "cancelled" && args.iter().any(|a| a.contains("nvenc") || a.contains("qsv") || a.contains("amf")) => export::run_ffmpeg(&editmedia::optimize_args(&src, &info, &tmp, &[]), info.duration_us.max(1), None, cancel, progress), x => x };
+                    r.inspect_err(|_| { let _ = std::fs::remove_file(&tmp); })?;
+                    if info.kind != "image" { export::validate_output(&tmp, info.duration_us).inspect_err(|_| { let _ = std::fs::remove_file(&tmp); })?; }
+                    std::fs::rename(&tmp, &target).map_err(|e| e.to_string())?;
+                }
+                crate::editor_cmds::allow_path(&ctx.app, &target);
+                out.outputs.push(target.to_string_lossy().into_owned());
+                if let Some(r) = info.reason { out.notes.push(r); }
+            }
+            JobSpec::AudioFx { path, fx } => {
+                let src = PathBuf::from(path);
+                let md = std::fs::metadata(&src).map_err(|_| format!("Source file is missing: {path}"))?;
+                let tag = fnv(&serde_json::to_string(fx).unwrap_or_default());
+                let target = ctx.cache_dir.join("audiofx").join(format!("{}-{tag:016x}.m4a", thumbs::key(path, md.len() as i64, editmedia::mtime_ms(&md), 4)));
+                if !target.is_file() {
+                    std::fs::create_dir_all(target.parent().unwrap()).map_err(|e| e.to_string())?;
+                    let rnn = models::path_of(&ctx.data_dir, "rnnoise");
+                    let tmp = target.with_extension("partial.m4a");
+                    let args = render::audiofx_args(&src, fx, rnn.is_some(), &tmp)?;
+                    let dur = probe_of(&src).ok().and_then(|p| p.duration_ms).unwrap_or(0) * 1000;
+                    export::run_ffmpeg(&args, dur.max(1), rnn.as_deref().and_then(|p| p.parent()), cancel, progress).inspect_err(|_| { let _ = std::fs::remove_file(&tmp); })?;
+                    std::fs::rename(&tmp, &target).map_err(|e| e.to_string())?;
+                    if fx.denoise && rnn.is_none() { out.notes.push("Used FFmpeg's built-in noise reduction. Install the RNNoise model in Settings → AI models for better results.".into()); }
+                }
+                crate::editor_cmds::allow_path(&ctx.app, &target);
+                out.outputs.push(target.to_string_lossy().into_owned());
+            }
+            JobSpec::Reverse { path } => {
+                let src = PathBuf::from(path);
+                let info = editmedia::info(&ctx.cache_dir, &src)?;
+                let target = ctx.cache_dir.join("reversed").join(format!("{}.mp4", thumbs::key(&info.path, info.size as i64, info.mtime, 5)));
+                if !target.is_file() {
+                    std::fs::create_dir_all(target.parent().unwrap()).map_err(|e| e.to_string())?;
+                    reverse_video(&src, &info, &work, &target, caps, cancel, progress)?;
+                }
+                crate::editor_cmds::allow_path(&ctx.app, &target);
+                out.outputs.push(target.to_string_lossy().into_owned());
+            }
+            JobSpec::Stabilize { path, strength } => {
+                let src = PathBuf::from(path);
+                let info = editmedia::info(&ctx.cache_dir, &src)?;
+                let s = (*strength).clamp(1, 3);
+                let target = ctx.cache_dir.join("stabilized").join(format!("{}-s{s}.mp4", thumbs::key(&info.path, info.size as i64, info.mtime, 6)));
+                if !target.is_file() {
+                    std::fs::create_dir_all(target.parent().unwrap()).map_err(|e| e.to_string())?;
+                    if !caps.encoders.is_empty() && !export::has_filter("vidstabdetect") { return Err("This FFmpeg build has no stabilizer (libvidstab)".into()); }
+                    let p1: Vec<String> = ["-hide_banner", "-nostdin", "-y", "-progress", "pipe:1", "-nostats", "-loglevel", "error", "-i", path, "-map", "0:v:0", "-vf", &format!("vidstabdetect=shakiness={}:accuracy=15:result=t.trf", 4 + s * 2), "-f", "null", "-"].iter().map(|s| s.to_string()).collect();
+                    export::run_ffmpeg(&p1, info.duration_us.max(1), Some(&work), cancel, &mut |p| progress(p * 0.5))?;
+                    let tmp = target.with_extension("partial.mp4");
+                    let mut p2: Vec<String> = ["-hide_banner", "-nostdin", "-y", "-progress", "pipe:1", "-nostats", "-loglevel", "error", "-i", path, "-map", "0:v:0", "-map", "0:a:0?",
+                        "-vf", &format!("vidstabtransform=input=t.trf:smoothing={}:optzoom=1:interpol=bicubic,unsharp=5:5:0.6:3:3:0.3,format=yuv420p", [10, 20, 35][s as usize - 1])].iter().map(|s| s.to_string()).collect();
+                    let (va, _) = export::video_codec_args(&export::Preset { crf: 18, ..Default::default() }, caps)?;
+                    p2.extend(va); p2.extend(["-c:a".into(), "aac".into(), "-b:a".into(), "192k".into(), "-movflags".into(), "+faststart".into(), tmp.to_string_lossy().into_owned()]);
+                    export::run_ffmpeg(&p2, info.duration_us.max(1), Some(&work), cancel, &mut |p| progress(0.5 + p * 0.5)).inspect_err(|_| { let _ = std::fs::remove_file(&tmp); })?;
+                    export::validate_output(&tmp, info.duration_us).inspect_err(|_| { let _ = std::fs::remove_file(&tmp); })?;
+                    std::fs::rename(&tmp, &target).map_err(|e| e.to_string())?;
+                }
+                crate::editor_cmds::allow_path(&ctx.app, &target);
+                out.outputs.push(target.to_string_lossy().into_owned());
+            }
+            JobSpec::Transcribe { spec } => {
+                let (segs, lang) = speech::transcribe(&ctx.data_dir, &work, spec, cancel, progress)?;
+                if segs.is_empty() { return Err("No speech was detected in this audio.".into()); }
+                let dir = ctx.cache_dir.join("transcripts"); std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+                let f = dir.join(format!("job{id}.json"));
+                std::fs::write(&f, serde_json::to_vec(&serde_json::json!({"language": lang, "segments": segs})).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+                out.outputs.push(f.to_string_lossy().into_owned());
+                out.notes.push(format!("{} caption lines · language: {lang}", segs.len()));
+            }
+            JobSpec::InstallModel { id: mid } => {
+                out.notes.push(models::install(&ctx.data_dir, mid, cancel, progress)?);
+            }
+            JobSpec::Tts { provider, voice, text, speed, project } => {
+                let dir = projects::assets_dir(&ctx.projects_root, project)?;
+                let stamp = db::now_ms();
+                let p = if provider == "piper" {
+                    let f = ops::unique_path(&dir, &format!("voiceover-{stamp}.wav"));
+                    speech::piper(&ctx.data_dir, voice, text, *speed, &f)?; f
+                } else {
+                    let conn = byok::connect(provider, &crate::editor_cmds::byok_cfg(c, provider))?;
+                    let g = byok::tts(&conn, text, voice)?;
+                    ops::write_atomic(&dir, &format!("voiceover-{stamp}.{}", g.ext), &g.bytes, false)?
+                };
+                crate::editor_cmds::allow_path(&ctx.app, &p);
+                out.outputs.push(p.to_string_lossy().into_owned());
+            }
+            JobSpec::AiImage { provider, prompt, aspect, project } => {
+                let conn = byok::connect(provider, &crate::editor_cmds::byok_cfg(c, provider))?;
+                let g = byok::image(&conn, prompt, aspect, cancel, progress)?;
+                let dir = projects::assets_dir(&ctx.projects_root, project)?;
+                let p = ops::write_atomic(&dir, &format!("ai-image-{}.{}", db::now_ms(), g.ext), &g.bytes, false)?;
+                crate::editor_cmds::allow_path(&ctx.app, &p);
+                out.outputs.push(p.to_string_lossy().into_owned());
+            }
+            JobSpec::AiVideo { provider, prompt, aspect, seconds, image, project } => {
+                let conn = byok::connect(provider, &crate::editor_cmds::byok_cfg(c, provider))?;
+                let img = image.as_ref().map(PathBuf::from);
+                let g = byok::video(&conn, prompt, aspect, *seconds, img.as_deref(), cancel, progress)?;
+                let dir = projects::assets_dir(&ctx.projects_root, project)?;
+                let p = ops::write_atomic(&dir, &format!("ai-video-{}.{}", db::now_ms(), g.ext), &g.bytes, false)?;
+                crate::editor_cmds::allow_path(&ctx.app, &p);
+                out.outputs.push(p.to_string_lossy().into_owned());
+            }
+            JobSpec::StockDownload { url, name } => {
+                let dir = ctx.projects_root.parent().map(|p| p.join("Stock")).ok_or("no stock folder")?;
+                let safe: String = name.chars().map(|ch| if "<>:\"/\\|?*".contains(ch) || ch.is_control() { '_' } else { ch }).collect::<String>().trim().trim_end_matches('.').chars().take(120).collect();
+                let safe = if ops::validate_filename(&safe).is_ok() { safe } else { format!("stock-{}.bin", db::now_ms()) };
+                let p = byok::download_to(url, &dir, &safe, cancel)?;
+                crate::editor_cmds::allow_path(&ctx.app, &p);
+                out.outputs.push(p.to_string_lossy().into_owned());
+            }
         }
         Ok(())
     })();
     let _ = std::fs::remove_dir_all(&work);
     result.map(|_| out)
+}
+
+fn fnv(s: &str) -> u64 { s.bytes().fold(0xcbf29ce484222325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3)) }
+
+/// Reverse a video in 4-second chunks (FFmpeg's `reverse` buffers whole inputs in RAM), then join the reversed
+/// chunks in reverse order without re-encoding.
+fn reverse_video(src: &Path, info: &editmedia::MediaInfo, work: &Path, target: &Path, caps: &export::Caps, cancel: &Arc<AtomicBool>, progress: &mut dyn FnMut(f64)) -> Result<(), String> {
+    let dur = info.duration_us.max(1);
+    let chunk = 4_000_000i64;
+    let n = ((dur + chunk - 1) / chunk).max(1);
+    let (va, _) = export::video_codec_args(&Preset { crf: 18, ..Default::default() }, caps)?;
+    let mut parts = vec![];
+    for k in 0..n {
+        if cancel.load(Ordering::Relaxed) { return Err("cancelled".into()); }
+        let part = work.join(format!("rev{k:05}.mp4"));
+        let mut a: Vec<String> = ["-hide_banner", "-nostdin", "-y", "-progress", "pipe:1", "-nostats", "-loglevel", "error"].iter().map(|s| s.to_string()).collect();
+        a.extend(["-ss".into(), format!("{:.6}", (k * chunk) as f64 / 1e6), "-t".into(), format!("{:.6}", chunk as f64 / 1e6), "-i".into(), src.to_string_lossy().into_owned(), "-map".into(), "0:v:0".into()]);
+        if info.has_audio { a.extend(["-map".into(), "0:a:0".into(), "-af".into(), "areverse,aformat=sample_rates=48000:channel_layouts=stereo".into(), "-c:a".into(), "aac".into(), "-b:a".into(), "192k".into()]); }
+        a.extend(["-vf".into(), "reverse,format=yuv420p".into()]); a.extend(va.clone());
+        a.push(part.to_string_lossy().into_owned());
+        let kk = k as f64; let nn = n as f64;
+        export::run_ffmpeg(&a, chunk, None, cancel, &mut |p| progress(((kk + p) / nn) * 0.95))?;
+        parts.push(part);
+    }
+    let list = work.join("rev.txt");
+    std::fs::write(&list, parts.iter().rev().map(|p| export::concat_list_line(p)).collect::<String>()).map_err(|e| e.to_string())?;
+    let tmp = target.with_extension("partial.mp4");
+    let a: Vec<String> = vec!["-hide_banner".into(), "-nostdin".into(), "-y".into(), "-loglevel".into(), "error".into(), "-f".into(), "concat".into(), "-safe".into(), "0".into(), "-i".into(), list.to_string_lossy().into_owned(), "-c".into(), "copy".into(), "-movflags".into(), "+faststart".into(), tmp.to_string_lossy().into_owned()];
+    export::run_ffmpeg(&a, dur, None, cancel, &mut |_| {}).inspect_err(|_| { let _ = std::fs::remove_file(&tmp); })?;
+    export::validate_output(&tmp, dur).inspect_err(|_| { let _ = std::fs::remove_file(&tmp); })?;
+    std::fs::rename(&tmp, target).map_err(|e| e.to_string())?;
+    progress(1.0);
+    Ok(())
 }
 
 fn image_op(c: &Connection, a: &db::AssetRow, o: &ImageOps, out_dir: &Option<String>) -> Result<String, String> {

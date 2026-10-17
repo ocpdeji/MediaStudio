@@ -1,11 +1,18 @@
 //! Media Studio Pro — native core. The UI talks to this only through the commands registered below.
 mod ai;
+mod byok;
 mod db;
+mod editmedia;
+mod editor_cmds;
 mod export;
 mod jobs;
 mod media;
+mod models;
 mod ops;
+mod projects;
+mod render;
 mod scan;
+mod speech;
 mod thumbs;
 
 use db::{now_ms, Query};
@@ -28,6 +35,8 @@ pub struct AppState {
     thumbs: thumbs::Pool,
     jobs: jobs::Jobs,
     probe_signal: Arc<(Mutex<bool>, Condvar)>,
+    renders: render::Sessions,
+    projects_root: PathBuf,
 }
 impl AppState {
     fn conn(&self) -> std::sync::MutexGuard<'_, Connection> { self.db.lock().unwrap_or_else(|p| p.into_inner()) }
@@ -62,6 +71,7 @@ fn add_library(app: AppHandle, s: State<AppState>, path: String) -> R<i64> {
         id
     };
     let _ = app.asset_protocol_scope().allow_directory(&p, true);
+    app.state::<editor_cmds::AllowState>().lock().unwrap().add_root(&p);
     start_scan(app, id, p);
     Ok(id)
 }
@@ -499,8 +509,19 @@ pub fn run() {
             let scope = app.asset_protocol_scope();
             for l in &libs { let _ = scope.allow_directory(&l.path, true); }
             let _ = scope.allow_directory(cache_dir.join("proxies"), false);
-            let jobs = jobs::Jobs::start(jobs::Ctx { app: app.handle().clone(), db_path: db_path.clone(), cache_dir: cache_dir.clone(), data_dir: data_dir.clone() }, concurrency);
-            app.manage(AppState { db: Mutex::new(conn), db_path, data_dir, cache_dir, thumbs: thumbs::Pool::new(thumb_workers), jobs, probe_signal: Arc::new((Mutex::new(false), Condvar::new())) });
+            let projects_root = db::get_setting(&conn, "projects.dir").and_then(|v| serde_json::from_str::<String>(&v).ok()).map(PathBuf::from)
+                .unwrap_or_else(|| app.path().document_dir().unwrap_or_else(|_| data_dir.clone()).join("Media Studio Pro").join("Projects"));
+            let _ = std::fs::create_dir_all(&projects_root);
+            let stock = projects_root.parent().map(|p| p.join("Stock")).unwrap_or_else(|| projects_root.join("Stock"));
+            let _ = scope.allow_directory(&projects_root, true);
+            let _ = scope.allow_directory(&stock, true);
+            let _ = scope.allow_directory(&cache_dir, true);
+            let mut allow = editor_cmds::Allow::default();
+            for l in &libs { allow.add_root(Path::new(&l.path)); }
+            for d in [&cache_dir, &projects_root, &stock] { allow.add_root(d); }
+            app.manage::<editor_cmds::AllowState>(Mutex::new(allow));
+            let jobs = jobs::Jobs::start(jobs::Ctx { app: app.handle().clone(), db_path: db_path.clone(), cache_dir: cache_dir.clone(), data_dir: data_dir.clone(), projects_root: projects_root.clone() }, concurrency);
+            app.manage(AppState { db: Mutex::new(conn), db_path, data_dir, cache_dir, thumbs: thumbs::Pool::new(thumb_workers), jobs, probe_signal: Arc::new((Mutex::new(false), Condvar::new())), renders: render::Sessions::default(), projects_root });
             let h = app.handle().clone();
             std::thread::spawn(move || prober(h));
             let h = app.handle().clone();
@@ -512,7 +533,13 @@ pub fn run() {
             query_assets, asset_detail, set_field, list_tags, tag_assets, list_collections, collection_edit, saved_searches, similar_groups,
             rename_preview, rename_apply, rename_undo, recycle, reveal, read_media, capture_frame, read_cache_file, preview_quick, save_output, write_text_file, read_project, recent_projects, resolve_media,
             enqueue_job, list_jobs, cancel_job, retry_job, clear_jobs,
-            get_settings, set_setting, cache_info, clear_cache, diagnostics, ai_status, ai_install, app_info
+            get_settings, set_setting, cache_info, clear_cache, diagnostics, ai_status, ai_install, app_info,
+            editor_cmds::projects_list, editor_cmds::projects_dir, editor_cmds::project_create, editor_cmds::project_load, editor_cmds::project_save, editor_cmds::project_rename,
+            editor_cmds::project_duplicate, editor_cmds::project_delete, editor_cmds::project_cover, editor_cmds::project_reveal, editor_cmds::project_assets_dir, editor_cmds::project_write_asset,
+            editor_cmds::editor_import, editor_cmds::editor_info, editor_cmds::editor_optimize, editor_cmds::editor_waveform, editor_cmds::editor_filmstrip, editor_cmds::read_range, editor_cmds::file_size,
+            editor_cmds::editor_frame_png, editor_cmds::save_text_as, editor_cmds::read_text_file, editor_cmds::render_start, editor_cmds::render_push, editor_cmds::render_finish, editor_cmds::render_cancel,
+            editor_cmds::render_audio, editor_cmds::voice_effects, editor_cmds::models_status, editor_cmds::model_install, editor_cmds::model_remove, editor_cmds::speech_voices,
+            editor_cmds::byok_providers, editor_cmds::byok_set, editor_cmds::ai_chat, editor_cmds::stock_search, editor_cmds::system_fonts, editor_cmds::editor_env
         ])
         .run(tauri::generate_context!())
         .expect("error while running Media Studio Pro");

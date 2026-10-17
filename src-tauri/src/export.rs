@@ -45,6 +45,13 @@ pub fn caps() -> &'static Caps {
     })
 }
 
+/// Whether the FFmpeg build includes a filter (e.g. `vidstabdetect`, `arnndn`).
+pub fn has_filter(name: &str) -> bool {
+    static F: OnceLock<String> = OnceLock::new();
+    let txt = F.get_or_init(|| media::ffmpeg_path().ok().and_then(|ff| media::run_capture(ff, &["-hide_banner".to_string(), "-filters".to_string()]).ok()).map(|o| String::from_utf8_lossy(&o).into_owned()).unwrap_or_default());
+    txt.lines().any(|l| l.split_whitespace().nth(1) == Some(name))
+}
+
 /// Choose the concrete encoder for a preset. Returns (codec args, human label).
 pub fn video_codec_args(p: &Preset, caps: &Caps) -> Result<(Vec<String>, String), String> {
     let has = |e: &str| caps.encoders.iter().any(|x| x == e);

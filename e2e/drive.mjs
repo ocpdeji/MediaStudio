@@ -9,7 +9,10 @@ const pages = await browser.pages();
 const page = pages.find(p => p.url().includes("localhost:1420") || p.url().includes("tauri.localhost")) ?? pages[0];
 const out = "e2e-out"; fs.mkdirSync(out, { recursive: true });
 try {
-  if (cmd === "eval") {
+  if (cmd === "evalfile") {
+    const r = await page.evaluate(`(async () => { ${fs.readFileSync(args[0], "utf8")} })()`);
+    console.log(typeof r === "string" ? r : JSON.stringify(r, null, 1));
+  } else if (cmd === "eval") {
     const r = await page.evaluate(`(async () => { ${args.join(" ")} })()`);
     console.log(typeof r === "string" ? r : JSON.stringify(r, null, 1));
   } else if (cmd === "shot") {
