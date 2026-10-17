@@ -170,7 +170,7 @@ export function VideoEditor() {
 
   const binList = useMemo(() => { const q = binQ.toLowerCase(); const src = binQ ? assets.filter(a => a.kind !== "raw") : bin; return src.filter(a => a.name.toLowerCase().includes(q)).slice(0, 300); }, [bin, assets, binQ]);
   return (
-    <div style={{ display: "grid", gridTemplateRows: "auto minmax(200px, 1fr) minmax(230px, 40%)", height: "100%", minHeight: 0 }}>
+    <div style={{ display: "grid", gridTemplateRows: "auto minmax(200px, 1fr) minmax(230px, 40%)", gridTemplateColumns: "minmax(0, 1fr)", height: "100%", minHeight: 0, minWidth: 0 }}>
       <div className="toolbar">
         <I.Clapperboard size={16} /><b className="ellipsis" style={{ maxWidth: 240 }}>{proj.name}{dirty ? " •" : ""}</b>
         <span className="dim num">{proj.width}×{proj.height} · {(proj.fps_num / proj.fps_den).toFixed(3).replace(/\.?0+$/, "")} fps · {fmtDur(dur / 1000)}</span>
@@ -186,7 +186,7 @@ export function VideoEditor() {
         <span className="grow" />
         <button className="btn primary" disabled={dur <= 0} onClick={() => setDialog("export")}><I.Download size={15} /> Export video</button>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "260px 1fr 300px", minHeight: 0 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "260px minmax(0, 1fr) 300px", minHeight: 0, minWidth: 0 }}>
         <aside className="sidebar" style={{ borderRight: "1px solid var(--line)", padding: 8 }}>
           <div className="side-h" style={{ paddingTop: 2 }}>Media <span className="row" style={{ gap: 2 }}>
             <button className="btn ghost sm" title="Add the Library selection" onClick={() => { const ids = new Set(bin.map(b => b.id)); const add = useStore.getState().assets.filter(a => useStore.getState().selected.has(a.id) && !ids.has(a.id) && a.kind !== "raw"); setBin([...bin, ...add]); toast(add.length ? `Added ${add.length} to the bin` : "Select files in the Library first"); }}><I.Plus size={13} /> Library selection</button></span></div>
@@ -289,7 +289,7 @@ function Monitor({ proj, t, playing }: { proj: T.Project; t: number; playing: bo
     }
   });
   return (
-    <div ref={box} style={{ background: "#0b0b0d", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minWidth: 0, position: "relative" }}>
+    <div ref={box} style={{ background: "#0b0b0d", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minWidth: 0, minHeight: 0, overflow: "hidden", position: "relative" }}>
       <canvas ref={cv} style={{ width: size.w, height: size.h, boxShadow: "0 0 0 1px #222" }} />
       <div className="row" style={{ marginTop: 8, color: "#ccc" }}><span className="mono num">{timecode(t, proj.fps_num, proj.fps_den)}</span><span className="dim" style={{ fontSize: 11 }}>Preview is approximate — the export is rendered exactly by FFmpeg.</span></div>
     </div>
