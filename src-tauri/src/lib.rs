@@ -301,6 +301,52 @@ fn resolve_media(s: State<AppState>, path: String) -> R<Option<db::AssetRow>> {
     match c.query_row("SELECT id FROM assets WHERE name=? COLLATE NOCASE AND missing=0 LIMIT 1", [&name], |r| r.get::<_, i64>(0)) { Ok(id) => db::get_asset(&c, id).map_err(e2s), Err(_) => Ok(None) }
 }
 
+/// Frame-exact capture with FFmpeg (decodes from the source, not from the preview). Saves a PNG next to the
+/// source unless `to_cache` is set, in which case it goes to the cache (for clipboard copies).
+#[tauri::command]
+async fn capture_frame(app: AppHandle, id: i64, time_us: i64, to_cache: bool) -> R<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let s = app.state::<AppState>();
+        let a = db::get_asset(&s.conn(), id).map_err(e2s)?.ok_or("Not found")?;
+        let src = PathBuf::from(&a.path);
+        let (stem, _) = ops::split_ext(&a.name);
+        let name = format!("{stem}_{:.3}s.png", time_us as f64 / 1e6);
+        ops::validate_filename(&name)?;
+        let dir = if to_cache { let d = s.cache_dir.join("frames"); std::fs::create_dir_all(&d).map_err(e2s)?; d } else { src.parent().ok_or("no folder")?.to_path_buf() };
+        let out = ops::unique_path(&dir, &name);
+        let tmp = dir.join(format!(".{}.png", now_ms()));
+        let args: Vec<String> = vec!["-hide_banner".into(), "-loglevel".into(), "error".into(), "-ss".into(), format!("{:.6}", time_us.max(0) as f64 / 1e6), "-i".into(), a.path.clone(),
+            "-map".into(), "0:v:0".into(), "-frames:v".into(), "1".into(), "-y".into(), tmp.to_string_lossy().into_owned()];
+        media::run_capture(media::ffmpeg_path()?, &args)?;
+        if !tmp.is_file() { return Err("No frame at that position".into()); }
+        std::fs::rename(&tmp, &out).map_err(e2s)?;
+        if !to_cache { let _ = scan::upsert_file(&s.conn(), &out); }
+        Ok(out.to_string_lossy().into_owned())
+    }).await.map_err(e2s)?
+}
+/// Render one frame through the quick-edit filter chain (delogo, crop, colour…) for an honest preview.
+#[tauri::command]
+async fn preview_quick(app: AppHandle, id: i64, edit: export::QuickEdit, time_us: i64) -> R<Response> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let s = app.state::<AppState>();
+        let a = db::get_asset(&s.conn(), id).map_err(e2s)?.ok_or("Not found")?;
+        let src = PathBuf::from(&a.path);
+        let probe = media::ffprobe_json(&src).map(|j| media::parse_probe(&j))?;
+        let d = s.cache_dir.join("frames"); std::fs::create_dir_all(&d).map_err(e2s)?;
+        let out = d.join(format!("preview-{}.png", now_ms()));
+        media::run_capture(media::ffmpeg_path()?, &export::build_quick_preview(&src, &probe, &edit, time_us, &out))?;
+        let b = std::fs::read(&out).map_err(e2s)?; let _ = std::fs::remove_file(&out);
+        Ok(Response::new(b))
+    }).await.map_err(e2s)?
+}
+#[tauri::command]
+async fn read_cache_file(app: AppHandle, path: String) -> R<Response> {
+    let cache = app.state::<AppState>().cache_dir.clone();
+    let p = PathBuf::from(&path);
+    if !dunce_canon(&p).starts_with(dunce_canon(&cache)) { return Err("Not a cache file".into()); }
+    tauri::async_runtime::spawn_blocking(move || std::fs::read(&p).map(Response::new).map_err(e2s)).await.map_err(e2s)?
+}
+
 // ================================================================ jobs
 
 #[tauri::command]
@@ -464,7 +510,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_libraries, add_library, remove_library, rescan_library, library_folders,
             query_assets, asset_detail, set_field, list_tags, tag_assets, list_collections, collection_edit, saved_searches, similar_groups,
-            rename_preview, rename_apply, rename_undo, recycle, reveal, read_media, save_output, write_text_file, read_project, recent_projects, resolve_media,
+            rename_preview, rename_apply, rename_undo, recycle, reveal, read_media, capture_frame, read_cache_file, preview_quick, save_output, write_text_file, read_project, recent_projects, resolve_media,
             enqueue_job, list_jobs, cancel_job, retry_job, clear_jobs,
             get_settings, set_setting, cache_info, clear_cache, diagnostics, ai_status, ai_install, app_info
         ])

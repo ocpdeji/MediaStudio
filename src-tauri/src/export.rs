@@ -175,8 +175,23 @@ pub fn build_quick(src: &Path, probe: &Probe, e: &QuickEdit, p: &Preset, caps: &
         return Ok(Built { args, duration_us: src_dur, notes });
     }
     args.extend(s(&["-ss", &ss, "-t", &secs(src_dur), "-i", &src.to_string_lossy()]));
+    let vf = if has_video { quick_vf(probe, e, p, speed, out_dur) } else { vec![] };
+    let mut af: Vec<String> = vec![];
+    let audio = probe.has_audio && !e.mute && p.acodec != "none";
+    if audio {
+        af.extend(atempo_chain(speed));
+        if (e.volume - 1.0).abs() > 1e-6 { af.push(format!("volume={:.3}", e.volume.clamp(0.0, 8.0))); }
+        if e.normalize_audio { af.push("loudnorm=I=-16:TP=-1.5:LRA=11".into()); }
+        if e.fade_in_us > 0 { af.push(format!("afade=t=in:st=0:d={}", secs(e.fade_in_us))); }
+        if e.fade_out_us > 0 { af.push(format!("afade=t=out:st={}:d={}", secs((out_dur - e.fade_out_us).max(0)), secs(e.fade_out_us))); }
+    } else if probe.has_audio { notes.push("Audio removed (muted).".into()); }
+    finish_quick(args, vf, af, audio, has_video, p, caps, out, notes, out_dur)
+}
+
+/// The video filter chain for a quick edit (shared by export and the single-frame preview).
+pub fn quick_vf(probe: &Probe, e: &QuickEdit, p: &Preset, speed: f64, out_dur: i64) -> Vec<String> {
     let mut vf: Vec<String> = vec![];
-    if has_video {
+    {
         let (sw, sh) = (probe.width.unwrap_or(0), probe.height.unwrap_or(0));
         for r in &e.delogo { if let Some(r) = clamp_rect(*r, sw, sh, 1) { vf.push(format!("delogo=x={}:y={}:w={}:h={}", r.x, r.y, r.w, r.h)); } }
         for r in &e.blur_regions { if let Some(r) = clamp_rect(*r, sw, sh, 0) {
@@ -193,15 +208,20 @@ pub fn build_quick(src: &Path, probe: &Probe, e: &QuickEdit, p: &Preset, caps: &
         if e.fade_out_us > 0 { vf.push(format!("fade=t=out:st={}:d={}", secs((out_dur - e.fade_out_us).max(0)), secs(e.fade_out_us))); }
         vf.push("scale=trunc(iw/2)*2:trunc(ih/2)*2".into());
     }
-    let mut af: Vec<String> = vec![];
-    let audio = probe.has_audio && !e.mute && p.acodec != "none";
-    if audio {
-        af.extend(atempo_chain(speed));
-        if (e.volume - 1.0).abs() > 1e-6 { af.push(format!("volume={:.3}", e.volume.clamp(0.0, 8.0))); }
-        if e.normalize_audio { af.push("loudnorm=I=-16:TP=-1.5:LRA=11".into()); }
-        if e.fade_in_us > 0 { af.push(format!("afade=t=in:st=0:d={}", secs(e.fade_in_us))); }
-        if e.fade_out_us > 0 { af.push(format!("afade=t=out:st={}:d={}", secs((out_dur - e.fade_out_us).max(0)), secs(e.fade_out_us))); }
-    } else if probe.has_audio { notes.push("Audio removed (muted).".into()); }
+    vf
+}
+
+/// One frame at `t_us` rendered through the same filters as the export (no fades/speed) → PNG.
+pub fn build_quick_preview(src: &Path, probe: &Probe, e: &QuickEdit, t_us: i64, out: &Path) -> Vec<String> {
+    let e2 = QuickEdit { fade_in_us: 0, fade_out_us: 0, speed: 1.0, ..e.clone() };
+    let vf = quick_vf(probe, &e2, &Preset::default(), 1.0, 0);
+    ["-hide_banner", "-loglevel", "error", "-y", "-ss", &secs(t_us.max(0)), "-i", &src.to_string_lossy(), "-filter_complex", &format!("[0:v:0]{}[v]", vf.join(",")), "-map", "[v]", "-frames:v", "1", &out.to_string_lossy()]
+        .iter().map(|s| s.to_string()).collect()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn finish_quick(mut args: Vec<String>, vf: Vec<String>, af: Vec<String>, audio: bool, has_video: bool, p: &Preset, caps: &Caps, out: &Path, mut notes: Vec<String>, out_dur: i64) -> Result<Built, String> {
+    let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<String>>();
     if has_video {
         args.extend(s(&["-filter_complex", &format!("[0:v:0]{}[v]", vf.join(",")), "-map", "[v]"]));
         let (va, label) = video_codec_args(p, caps)?; args.extend(va); notes.push(format!("Video: {label}"));
