@@ -2,7 +2,6 @@
 //! filtergraph (titles are written to files and referenced by relative name).
 use crate::media::{self, Probe};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -554,7 +553,6 @@ pub fn validate_output(path: &Path, expect_us: i64) -> Result<Probe, String> {
     Ok(p)
 }
 
-pub fn used_inputs(args: &[String]) -> HashSet<String> { args.windows(2).filter(|w| w[0] == "-i").map(|w| w[1].clone()).collect() }
 
 #[cfg(test)]
 mod tests {

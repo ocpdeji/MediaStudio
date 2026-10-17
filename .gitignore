@@ -25,3 +25,4 @@ dist-ssr
 
 test-media/
 e2e-out/
+src-tauri/ffmpeg/*.exe

@@ -144,6 +144,18 @@ pub fn probe_batch(c: &Connection, batch: usize) -> rusqlite::Result<Vec<i64>> {
 mod tests {
     use super::*;
     use std::fs;
+    #[test] fn long_windows_paths_and_unicode_are_scanned() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut deep = dir.path().join("lib");
+        for i in 0..6 { deep = deep.join(format!("very_long_folder_name_number_{i}_ünïcødé_日本")); }
+        fs::create_dir_all(&deep).unwrap();
+        let file = deep.join(format!("{}.mp4", "long_named_file_".repeat(5)));
+        fs::write(&file, b"x").unwrap();
+        assert!(file.to_string_lossy().len() > 260, "path should exceed MAX_PATH: {}", file.to_string_lossy().len());
+        let (found, errors) = walk(&dir.path().join("lib"), &[], |_| {});
+        assert_eq!((found.len(), errors), (1, 0));
+        assert!(found[0].rel.ends_with(".mp4") && found[0].folder.contains("日本"));
+    }
     #[test] fn scan_add_change_missing_move_restore() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("Shoot ü 2024");

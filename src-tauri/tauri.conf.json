@@ -48,7 +48,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": {},
+    "resources": {
+      "ffmpeg/ffmpeg.exe": "ffmpeg/ffmpeg.exe",
+      "ffmpeg/ffprobe.exe": "ffmpeg/ffprobe.exe",
+      "ffmpeg/FFMPEG-LICENSE": "ffmpeg/FFMPEG-LICENSE",
+      "ffmpeg/FFMPEG-BUILD-INFO.txt": "ffmpeg/FFMPEG-BUILD-INFO.txt",
+      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
+    },
     "windows": {
       "webviewInstallMode": { "type": "downloadBootstrapper" },
       "nsis": {
