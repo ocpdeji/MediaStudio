@@ -4,7 +4,7 @@ import puppeteer from "puppeteer-core";
 import fs from "node:fs";
 
 const [cmd, ...args] = process.argv.slice(2);
-const browser = await puppeteer.connect({ browserURL: "http://127.0.0.1:9222", defaultViewport: null });
+const browser = await puppeteer.connect({ browserURL: "http://127.0.0.1:9222", defaultViewport: null, protocolTimeout: 0 });
 const pages = await browser.pages();
 const page = pages.find(p => p.url().includes("localhost:1420") || p.url().includes("tauri.localhost")) ?? pages[0];
 const out = "e2e-out"; fs.mkdirSync(out, { recursive: true });

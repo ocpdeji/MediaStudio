@@ -538,7 +538,7 @@ pub fn run() {
             editor_cmds::project_duplicate, editor_cmds::project_delete, editor_cmds::project_cover, editor_cmds::project_reveal, editor_cmds::project_assets_dir, editor_cmds::project_write_asset,
             editor_cmds::editor_import, editor_cmds::editor_info, editor_cmds::editor_optimize, editor_cmds::editor_waveform, editor_cmds::editor_filmstrip, editor_cmds::read_range, editor_cmds::file_size,
             editor_cmds::editor_frame_png, editor_cmds::save_text_as, editor_cmds::read_text_file, editor_cmds::render_start, editor_cmds::render_push, editor_cmds::render_finish, editor_cmds::render_cancel,
-            editor_cmds::render_audio, editor_cmds::voice_effects, editor_cmds::models_status, editor_cmds::model_install, editor_cmds::model_remove, editor_cmds::speech_voices,
+            editor_cmds::render_audio, editor_cmds::voice_effects, editor_cmds::reveal_path, editor_cmds::open_path_default, editor_cmds::sfx_library, editor_cmds::detect_silence, editor_cmds::models_status, editor_cmds::model_install, editor_cmds::model_remove, editor_cmds::model_bytes, editor_cmds::speech_voices,
             editor_cmds::byok_providers, editor_cmds::byok_set, editor_cmds::ai_chat, editor_cmds::stock_search, editor_cmds::system_fonts, editor_cmds::editor_env
         ])
         .run(tauri::generate_context!())

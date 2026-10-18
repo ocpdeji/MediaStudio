@@ -19,6 +19,10 @@ class Boundary extends React.Component<{ children: React.ReactNode }, { err: Err
   }
 }
 
+// End-to-end test hook (development builds only; stripped from release bundles).
+if (import.meta.env.DEV) void Promise.all([import("./editor/store"), import("./editor/model"), import("./lib/store"), import("./editor/engine/exporter"), import("./editor/api")])
+  .then(([es, em, ls, ex, api]) => { (window as any).__t = { es, em, ls, ex, api }; });
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode><Boundary><App /></Boundary></React.StrictMode>,
 );

@@ -129,6 +129,7 @@ pub fn start(sessions: &Sessions, spec: &RenderSpec, work: &Path, cancel: &Arc<A
     if spec.fps_num <= 0 || spec.fps_den <= 0 || spec.fps_num / spec.fps_den > 240 { return Err("Unsupported frame rate".into()); }
     if spec.frames <= 0 { return Err("Nothing to export — the timeline is empty.".into()); }
     let dir = PathBuf::from(&spec.out_dir);
+    if spec.internal { let _ = std::fs::create_dir_all(&dir); }
     if !dir.is_dir() { return Err(format!("Output folder does not exist: {}", spec.out_dir)); }
     ops::validate_filename(&spec.name)?;
     let duration_us = (spec.frames as f64 * 1e6 * spec.fps_den as f64 / spec.fps_num as f64).round() as i64;

@@ -11,7 +11,11 @@ import { Slideshow, Viewer } from "./components/Viewer";
 import { AudioDialog, CommandPalette, ContactDialog, ConvertDialog, HelpDialog, ImagesDialog, JoinDialog, QuickDialog, RenameDialog, SettingsDialog, SimilarDialog, Toasts, Tour } from "./components/Dialogs";
 import { AskHost, ContextMenu, Splitter } from "./components/ui";
 import { ImageEditor } from "./workspaces/ImageEditor";
-import { VideoEditor } from "./workspaces/VideoEditor";
+import { Home } from "./editor/ui/Home";
+import { Editor } from "./editor/ui/Editor";
+import { editorJobEvent, setNotifier, useEd } from "./editor/store";
+import { ed } from "./editor/api";
+import { newProject } from "./editor/model";
 import { Enhance } from "./workspaces/Enhance";
 
 function LibraryWorkspace() {
@@ -72,11 +76,14 @@ export default function App() {
       listen<JobRow>("job", e => {
         const s = useStore.getState(), prev = s.jobs.find(j => j.id === e.payload.id), j = e.payload;
         s.upsertJob(j);
+        editorJobEvent(j);
         if (prev?.status !== j.status) {
           if (j.status === "done") {
             window.dispatchEvent(new Event("msp-job-done"));
+            // the editor reports its own background work (prepare, captions…) in context
+            const quiet = ["prepare", "audiofx", "reverse", "stabilize", "download", "captions", "voiceover", "ai", "stock"].includes(j.kind) && s.workspace === "editor";
             const out = j.result?.outputs?.[0];
-            s.toast(`Finished: ${j.title}${j.result?.notes?.length ? "\n" + j.result.notes.slice(0, 2).join("\n") : ""}`, "ok", out ? { label: "Show file", run: () => api.resolveMedia(out).then(a => (a ? api.reveal(a.id) : undefined)).catch(err => s.toast(errText(err), "error")) } : undefined);
+            if (!quiet) s.toast(`Finished: ${j.title}${j.result?.notes?.length ? "\n" + j.result.notes.slice(0, 2).join("\n") : ""}`, "ok", out ? { label: "Show file", run: () => api.resolveMedia(out).then(a => (a ? api.reveal(a.id) : undefined)).catch(err => s.toast(errText(err), "error")) } : undefined);
           } else if (j.status === "failed") s.toast(`Failed: ${j.title}\n${j.error ?? ""}`, "error", { label: "Details", run: () => s.setDialog({ kind: "jobs" }) });
         }
       }),
@@ -85,17 +92,32 @@ export default function App() {
     return () => { uns.forEach(u => u.then(f => f())); };
   }, []); // eslint-disable-line
 
-  useEffect(() => { getCurrentWindow().setTitle(`Media Studio Pro — ${{ library: "Library", image: "Image editor", video: "Timeline", enhance: "Enhance" }[workspace]}`).catch(() => {}); }, [workspace]);
+  useEffect(() => { if (workspace !== "editor" && workspace !== "home") getCurrentWindow().setTitle(`Media Studio Pro — ${{ library: "Library", image: "Photo editor", video: "Video editor", enhance: "Enhance" }[workspace]}`).catch(() => {}); }, [workspace]);
+
+  // "Video editor" from the library: new project with the selected media
+  useEffect(() => {
+    if (workspace !== "video") return;
+    const s = useStore.getState(); const paths = s.assets.filter(a => s.editIds.includes(a.id)).map(a => a.path);
+    (async () => {
+      const m = await ed.create(`Project ${new Date().toLocaleDateString()}`, newProject("Untitled"));
+      await useEd.getState().open(m.id);
+      useStore.setState({ workspace: "editor" });
+      if (paths.length) { const { importPaths } = await import("./editor/store"); await importPaths(paths, true); }
+    })().catch(e => { s.toast(errText(e), "error"); useStore.setState({ workspace: "home" }); });
+  }, [workspace]);
+  useEffect(() => { setNotifier((text, kind) => useStore.getState().toast(text, kind)); const h = () => useStore.getState().open("enhance", []); window.addEventListener("msp-open-enhance", h); return () => window.removeEventListener("msp-open-enhance", h); }, []);
 
   // global shortcuts (library workspace; editors handle their own)
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
       const s = useStore.getState();
       const mod = e.ctrlKey || e.metaKey, key = e.key;
+      if (s.workspace === "editor" && !(mod && key.toLowerCase() === "j")) return;
       if (mod && key.toLowerCase() === "k") { e.preventDefault(); useStore.setState({ palette: !s.palette }); return; }
       if (mod && ["1", "2", "3", "4"].includes(key)) { e.preventDefault(); s.open((["library", "image", "video", "enhance"] as const)[+key - 1], s.workspace === "library" ? s.targetIds() : s.editIds); return; }
       if (mod && key.toLowerCase() === "j") { e.preventDefault(); s.setDialog(s.dialog?.kind === "jobs" ? null : { kind: "jobs" }); return; }
       if (mod && key === ",") { e.preventDefault(); s.setDialog({ kind: "settings" }); return; }
+      if (s.workspace === "editor" || s.workspace === "home") return;
       if (s.palette || (s.dialog && s.dialog.kind !== "jobs") || s.workspace !== "library") return;
       if ((e.target as HTMLElement).closest("input,textarea,select,[contenteditable]")) return;
       const run = (id: string) => { e.preventDefault(); runCmd(id); };
@@ -132,7 +154,14 @@ export default function App() {
     window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k);
   }, []);
 
-  if (!ready) return <div className="empty" style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>Loading library…</div>;
+  if (!ready) return <div className="empty" style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>Loading…</div>;
+  const openProject = async (id: string) => { try { await useEd.getState().open(id); useStore.setState({ workspace: "editor" }); } catch (e) { useStore.getState().toast(errText(e), "error"); } };
+  if (workspace === "home" || workspace === "editor" || workspace === "video") return (
+    <>
+      {workspace === "editor" ? <Editor onHome={() => useStore.setState({ workspace: "home" })} /> : <Home onOpen={openProject} onWorkspace={w => useStore.getState().open(w, [])} />}
+      <DialogHost /><ContextMenu /><AskHost /><Toasts />
+    </>
+  );
   return (
     <div className="app" onContextMenu={e => { if (!(e.target as HTMLElement).closest("input,textarea")) e.preventDefault(); }}>
       <TopBar />
@@ -140,7 +169,6 @@ export default function App() {
         <div className="grow" style={{ display: "flex", minWidth: 0 }}>
           {workspace === "library" && <LibraryWorkspace />}
           {workspace === "image" && <div className="grow"><ImageEditor /></div>}
-          {workspace === "video" && <div className="grow"><VideoEditor /></div>}
           {workspace === "enhance" && <div className="grow"><Enhance /></div>}
         </div>
       </main>

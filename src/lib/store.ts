@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { api, Asset, errText, JobRow, Library, Query } from "./api";
 
-export type Workspace = "library" | "image" | "video" | "enhance";
+export type Workspace = "home" | "editor" | "library" | "image" | "video" | "enhance";
 export interface Toast { id: number; text: string; kind: "info" | "ok" | "error"; action?: { label: string; run: () => void } }
 export interface Layout { mode: "grid" | "list"; thumb: number; sidebar: number; viewer: number; inspector: number; showInspector: boolean; showSidebar: boolean; loupe: boolean; theme: "dark" | "light" }
 
@@ -42,7 +42,7 @@ let refreshSeq = 0;
 
 export const useStore = create<S>((set, get) => ({
   ready: false, libraries: [], tags: [], collections: [], searches: [], query: DEFAULT_QUERY, assets: [], loading: false, scanning: {},
-  selected: new Set(), focus: null, anchor: null, layout: DEFAULT_LAYOUT, workspace: "library", editIds: [], compare: null,
+  selected: new Set(), focus: null, anchor: null, layout: DEFAULT_LAYOUT, workspace: "home", editIds: [], compare: null,
   jobs: [], toasts: [], palette: false, dialog: null,
 
   async init() {

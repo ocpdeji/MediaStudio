@@ -156,20 +156,19 @@ pub fn filmstrip(cache: &Path, path: &Path, size: u64, mtime: i64, duration_us: 
     let cols = count.min(20);
     let rows = count.div_ceil(cols);
     let ps = path.to_string_lossy().into_owned();
-    let f = cache.join("strips").join(format!("{}.jpg", thumbs::key(&ps, size as i64, mtime, 3)));
+    let f = cache.join("strips").join(format!("{}.jpg", thumbs::key(&ps, size as i64, mtime, 7)));
     let fs = Filmstrip { path: f.to_string_lossy().into_owned(), cols, count, interval_us: (interval * 1e6) as i64, tw, th };
     if f.is_file() { return Ok(fs); }
     std::fs::create_dir_all(f.parent().unwrap()).map_err(|e| e.to_string())?;
     let tmp = f.with_extension("partial.jpg");
     let vf = format!("fps=1/{interval:.6}:start_time=0:round=near,scale={tw}:{th}:force_original_aspect_ratio=increase,crop={tw}:{th},tile={cols}x{rows}");
-    let args: Vec<String> = vec!["-hide_banner".into(), "-nostdin".into(), "-loglevel".into(), "error".into(), "-skip_frame".into(), "nokey".into(), "-i".into(), ps.clone(),
-        "-map".into(), "0:v:0".into(), "-vf".into(), vf, "-frames:v".into(), "1".into(), "-q:v".into(), "5".into(), "-y".into(), tmp.to_string_lossy().into_owned()];
-    let r = media::run_capture(media::ffmpeg_path()?, &args);
-    if r.is_err() || !tmp.is_file() {
-        // some streams have too few keyframes for nokey skipping — decode everything instead
-        let args2: Vec<String> = args.iter().filter(|a| *a != "-skip_frame" && *a != "nokey").cloned().collect();
-        media::run_capture(media::ffmpeg_path()?, &args2)?;
-    }
+    // Keyframe-only decoding is much faster on long files but leaves gaps when keyframes are sparse (HEVC often has
+    // one every 5–10 s), so it's only used for long sources where one tile per keyframe is acceptable.
+    let mut args: Vec<String> = vec!["-hide_banner".into(), "-nostdin".into(), "-loglevel".into(), "error".into()];
+    if dur_s > 600.0 { args.extend(["-skip_frame".into(), "nokey".into()]); }
+    args.extend(["-i".into(), ps.clone(), "-map".into(), "0:v:0".into(), "-vf".into(), vf, "-frames:v".into(), "1".into(), "-q:v".into(), "5".into(), "-y".into(), tmp.to_string_lossy().into_owned()]);
+    media::run_capture(media::ffmpeg_path()?, &args)?;
+    if !tmp.is_file() { return Err("Could not build the timeline thumbnails".into()); }
     std::fs::rename(&tmp, &f).map_err(|e| e.to_string())?;
     Ok(fs)
 }

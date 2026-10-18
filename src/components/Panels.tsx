@@ -16,11 +16,11 @@ export function TopBar() {
     <button className={`tab ${workspace === w ? "on" : ""}`} title={title} onClick={() => open(w, w === "library" ? [] : editIds.length ? editIds : useStore.getState().targetIds())}>{icon}{label}</button>;
   return (
     <header className="topbar">
-      <div className="brand"><span className="logo" />Media Studio Pro</div>
+      <button className="brand" style={{ background: "transparent", border: 0, cursor: "pointer", color: "inherit", font: "inherit" }} title="Home — projects" onClick={() => open("home")}><span className="logo" />Media Studio Pro</button>
       <nav className="tabs">
         {tab("library", "Library", <I.LayoutGrid size={15} />, "Browse & review (Ctrl+1)")}
         {tab("image", "Image", <I.SlidersHorizontal size={15} />, "Image editor (Ctrl+2)")}
-        {tab("video", "Timeline", <I.Clapperboard size={15} />, "Video timeline editor (Ctrl+3)")}
+        {tab("video", "Video editor", <I.Clapperboard size={15} />, "New editor project from the selected media (Ctrl+3)")}
         {tab("enhance", "Enhance", <I.Sparkles size={15} />, "AI upscaling & enhancement (Ctrl+4)")}
       </nav>
       <span className="grow" />

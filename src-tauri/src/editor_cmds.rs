@@ -251,7 +251,10 @@ pub fn render_cancel(s: State<AppState>, id: u64) { render::cancel(&s.renders, i
 pub async fn render_audio(app: AppHandle, plan: render::AudioPlan, out_dir: String, name: String) -> R<String> {
     tauri::async_runtime::spawn_blocking(move || {
         crate::ops::validate_filename(&name)?;
-        let dir = PathBuf::from(&out_dir); if !dir.is_dir() { return Err("Output folder does not exist".into()); }
+        let dir = PathBuf::from(&out_dir);
+        let cache = app.state::<AppState>().cache_dir.clone();
+        if dir.starts_with(&cache) { let _ = std::fs::create_dir_all(&dir); }
+        if !dir.is_dir() { return Err("Output folder does not exist".into()); }
         let target = crate::ops::unique_path(&dir, &name);
         let (stem, ext) = crate::ops::split_ext(target.file_name().unwrap().to_str().unwrap_or("audio.mp3"));
         let tmp = dir.join(format!("{stem}.partial.{ext}"));
@@ -262,6 +265,71 @@ pub async fn render_audio(app: AppHandle, plan: render::AudioPlan, out_dir: Stri
         allow_file(&app, &target);
         Ok(target.to_string_lossy().into_owned())
     }).await.map_err(e2s)?
+}
+
+/// Built-in sound effects, synthesised once with FFmpeg into the cache (no third-party samples).
+#[tauri::command]
+pub async fn sfx_library(app: AppHandle) -> R<Vec<(String, String)>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = app.state::<AppState>().cache_dir.join("sfx");
+        std::fs::create_dir_all(&dir).map_err(e2s)?;
+        const L: &[(&str, &str, &str)] = &[
+            ("whoosh", "Whoosh", "anoisesrc=d=0.8:c=pink:a=0.6,highpass=f='300',lowpass=f=4000,afade=t=in:d=0.35,afade=t=out:st=0.35:d=0.45,aphaser=speed=2"),
+            ("swoosh", "Swoosh (fast)", "anoisesrc=d=0.4:c=white:a=0.5,bandpass=f=2500:w=1800,afade=t=in:d=0.12,afade=t=out:st=0.12:d=0.28"),
+            ("pop", "Pop", "sine=f=900:d=0.09,afade=t=out:d=0.09,volume=0.8"),
+            ("click", "Click", "sine=f=2400:d=0.02,afade=t=out:d=0.02"),
+            ("ding", "Ding", "sine=f=1318:d=1.2,afade=t=out:d=1.2,aecho=0.6:0.4:60:0.3"),
+            ("chime", "Chime", "sine=f=880:d=0.9[a];sine=f=1320:d=0.9[b];[a][b]amix=inputs=2,afade=t=out:d=0.9"),
+            ("riser", "Riser", "sine=f=200:d=2,vibrato=f=12:d=0.3,asetrate=48000*1.0,afade=t=in:d=1.8,afade=t=out:st=1.85:d=0.15,aphaser"),
+            ("boom", "Boom (impact)", "sine=f=55:d=1.4,afade=t=out:d=1.4,volume=1.6,acrusher=bits=10:mix=0.2"),
+            ("hit", "Cinematic hit", "anoisesrc=d=1:c=brown:a=0.9,lowpass=f=300,afade=t=out:d=1,volume=2"),
+            ("glitch", "Glitch", "anoisesrc=d=0.5:c=white:a=0.6,acrusher=bits=4:samples=12:mix=1,tremolo=f=30:d=0.9"),
+            ("typing", "Typing", "anoisesrc=d=1.5:c=white:a=0.4,highpass=f=2000,tremolo=f=12:d=1,afade=t=out:st=1.3:d=0.2"),
+            ("shutter", "Camera shutter", "anoisesrc=d=0.12:c=white:a=0.7,highpass=f=1500,afade=t=out:d=0.12"),
+            ("notify", "Notification", "sine=f=1046:d=0.15[a];sine=f=1568:d=0.25[b];[a][b]concat=n=2:v=0:a=1,afade=t=out:st=0.2:d=0.2"),
+            ("wrong", "Wrong buzzer", "sine=f=140:d=0.6,acrusher=bits=6:mix=0.5,afade=t=out:st=0.45:d=0.15"),
+            ("heartbeat", "Heartbeat", "sine=f=50:d=0.15,afade=t=out:d=0.15,apad=pad_dur=0.12[a];sine=f=48:d=0.15,afade=t=out:d=0.15,apad=pad_dur=0.6[b];[a][b]concat=n=2:v=0:a=1,volume=2"),
+            ("drumroll", "Drum roll", "anoisesrc=d=2:c=pink:a=0.6,lowpass=f=900,tremolo=f=18:d=0.8,afade=t=in:d=1.5"),
+        ];
+        let mut out = vec![];
+        for (id, name, graph) in L {
+            let f = dir.join(format!("{id}.wav"));
+            if !f.is_file() {
+                let args: Vec<String> = vec!["-hide_banner".into(), "-loglevel".into(), "error".into(), "-f".into(), "lavfi".into(), "-i".into(), graph.to_string(), "-ar".into(), "48000".into(), "-ac".into(), "2".into(), "-y".into(), f.to_string_lossy().into_owned()];
+                if crate::media::run_capture(crate::media::ffmpeg_path()?, &args).is_err() { continue; }
+            }
+            allow_file(&app, &f);
+            out.push((name.to_string(), f.to_string_lossy().into_owned()));
+        }
+        Ok(out)
+    }).await.map_err(e2s)?
+}
+
+/// Silent intervals (µs) in a file's audio, for "remove silences".
+#[tauri::command]
+pub async fn detect_silence(app: AppHandle, path: String, noise_db: f64, min_us: i64) -> R<Vec<(i64, i64)>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = checked(&app, &path)?;
+        let nd = noise_db.clamp(-80.0, -10.0); let md = (min_us.max(100_000) as f64) / 1e6;
+        let args: Vec<String> = vec!["-hide_banner".into(), "-nostdin".into(), "-i".into(), p.to_string_lossy().into_owned(), "-map".into(), "0:a:0".into(), "-af".into(), format!("silencedetect=noise={nd:.1}dB:d={md:.3}"), "-f".into(), "null".into(), "-".into()];
+        let o = crate::media::command(crate::media::ffmpeg_path()?).args(&args).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::piped()).output().map_err(e2s)?;
+        let txt = String::from_utf8_lossy(&o.stderr);
+        let mut v = vec![]; let mut start: Option<f64> = None;
+        for l in txt.lines() {
+            if let Some(i) = l.find("silence_start: ") { start = l[i + 15..].split_whitespace().next().and_then(|x| x.parse().ok()); }
+            if let Some(i) = l.find("silence_end: ") { if let (Some(s), Some(e)) = (start.take(), l[i + 13..].split_whitespace().next().and_then(|x| x.parse::<f64>().ok())) { v.push(((s.max(0.0) * 1e6) as i64, (e * 1e6) as i64)); } }
+        }
+        Ok(v)
+    }).await.map_err(e2s)?
+}
+
+#[tauri::command]
+pub fn reveal_path(app: AppHandle, path: String) -> R<()> { let p = checked(&app, &path)?; crate::ops::reveal(&p) }
+#[tauri::command]
+pub fn open_path_default(app: AppHandle, path: String) -> R<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let p = checked(&app, &path)?;
+    app.opener().open_path(p.to_string_lossy(), None::<&str>).map_err(e2s)
 }
 
 #[tauri::command]
@@ -279,6 +347,17 @@ pub fn model_install(s: State<AppState>, id: String) -> R<i64> {
     let pj = serde_json::to_string(&spec).map_err(e2s)?;
     if let Ok(j) = c.query_row("SELECT id FROM jobs WHERE params=? AND status IN ('queued','running') LIMIT 1", [&pj], |r| r.get::<_, i64>(0)) { return Ok(j); }
     s.jobs.enqueue(&c, spec, format!("Download {}", d.name))
+}
+/// Bytes of an installed ONNX model (background removal, vocal separation) for in-app GPU inference.
+#[tauri::command]
+pub async fn model_bytes(app: AppHandle, id: String) -> R<Response> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let data = app.state::<AppState>().data_dir.clone();
+        let d = models::def(&id).ok_or("Unknown model")?;
+        if !d.marker.ends_with(".onnx") { return Err("Not an ONNX model".into()); }
+        let p = models::path_of(&data, &id).ok_or_else(|| format!("{} isn't installed. Install it in Settings → AI models.", d.name))?;
+        std::fs::read(p).map(Response::new).map_err(e2s)
+    }).await.map_err(e2s)?
 }
 #[tauri::command]
 pub fn model_remove(s: State<AppState>, id: String) -> R<()> { models::remove(&s.data_dir, &id) }

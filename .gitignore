@@ -27,3 +27,4 @@ test-media/
 e2e-out/
 src-tauri/ffmpeg/*.exe
 RELEASE/
+public/ort/
