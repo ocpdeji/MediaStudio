@@ -55,6 +55,7 @@ interface El { v: HTMLVideoElement; path: string; seeks: number; gain?: GainNode
 export class PreviewSources implements FrameProvider {
   private els = new Map<string, El>();
   private fxEls = new Map<string, El>();
+  private matteEls = new Map<string, El>();
   images: ImageCache;
   private ac: AudioContext | null = null;
   private master: GainNode | null = null;
@@ -135,6 +136,7 @@ export class PreviewSources implements FrameProvider {
     }
     for (const [k, e] of this.els) if (!live.has(k)) { e.v.pause(); if (!this.near(p, k, t)) { e.v.removeAttribute("src"); e.v.load(); this.els.delete(k); } }
     for (const [k, e] of this.fxEls) if (!liveFx.has(k)) { e.v.pause(); this.fxEls.delete(k); e.v.removeAttribute("src"); e.v.load(); }
+    for (const [k, e] of this.matteEls) if (!live.has(k)) { e.v.pause(); if (!this.near(p, k, t)) { this.matteEls.delete(k); e.v.removeAttribute("src"); e.v.load(); } }
   }
   private near(p: Project, id: string, t: US) { for (const tr of p.tracks) for (const c of tr.clips) if (c.id === id) return t >= c.start - 8e6 && t < end(c) + 8e6; return false; }
 
@@ -149,7 +151,7 @@ export class PreviewSources implements FrameProvider {
   image(path: string) { return this.images.get(path); }
   matte(c: Clip, m: MediaRef, srcUs: US): Frame | null {
     if (!m.matte) return null;
-    const e = this.el(`matte:${c.id}`, m.matte);
+    const e = this.el(c.id, m.matte, this.matteEls);
     const t = fileTime(c, m, srcUs) / 1e6;
     if (!this.playing || e.v.paused) { if (Math.abs(e.v.currentTime - t) > 0.02 && !e.v.seeking) e.v.currentTime = t + 0.0005; }
     const main = this.els.get(c.id);
@@ -159,10 +161,10 @@ export class PreviewSources implements FrameProvider {
   }
   /** True while any active element is still seeking (used to delay a scrub frame instead of flashing black). */
   busy() { for (const e of this.els.values()) if (e.v.seeking) return true; return false; }
-  pauseAll() { for (const e of [...this.els.values(), ...this.fxEls.values()]) e.v.pause(); }
+  pauseAll() { for (const e of [...this.els.values(), ...this.fxEls.values(), ...this.matteEls.values()]) e.v.pause(); }
   dispose() {
-    for (const e of [...this.els.values(), ...this.fxEls.values()]) { e.v.pause(); e.v.removeAttribute("src"); e.v.load(); }
-    this.els.clear(); this.fxEls.clear(); this.images.clear(); void this.ac?.close(); this.ac = null;
+    for (const e of [...this.els.values(), ...this.fxEls.values(), ...this.matteEls.values()]) { e.v.pause(); e.v.removeAttribute("src"); e.v.load(); }
+    this.els.clear(); this.fxEls.clear(); this.matteEls.clear(); this.images.clear(); void this.ac?.close(); this.ac = null;
   }
 }
 

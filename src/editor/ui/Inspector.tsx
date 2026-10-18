@@ -11,7 +11,7 @@ import {
 } from "../model";
 import { BUNDLED_FONTS, CAPTION_STYLES, TEXT_PRESETS } from "../presets";
 import { ensureAudioFx, ensureStabilized, notify, useEd } from "../store";
-import { ensureMatte, matteState } from "../ai/cutout";
+import { ensureMatte, isolate, matteState, stemState } from "../ai/cutout";
 
 // ---------------------------------------------------------------- small controls
 
@@ -278,7 +278,7 @@ function CutoutSec({ p, c }: { p: Project; c: Clip }) {
   const m = c.media ? p.media[c.media] : undefined;
   const st = matteState(c.media ?? "");
   return <Sec title="Remove background" on={!!c.cutout} onToggle={v => { commit(c.id, { cutout: v }); if (v && c.media && !m?.matte) void ensureMatte(c.media); }}>
-    <div className="ed-note">AI cutout with Robust Video Matting (people) or IS-Net (objects in photos). Runs on your GPU, no green screen needed. Files stay on this PC.</div>
+    <div className="ed-note">AI cutout with Robust Video Matting (people in video) or IS-Net (any subject in photos). Runs on your GPU with DirectML — no green screen, nothing uploaded.</div>
     {st && <div><div className="ed-bar"><div style={{ width: `${Math.round(st.progress * 100)}%` }} /></div><div className="ed-note">{st.label}</div></div>}
     {m?.matte && <div className="ed-note" style={{ color: "#5be3a0" }}>Cutout ready.</div>}
     {c.media && <button className="eb sm solid" onClick={() => ensureMatte(c.media!, true)}>Re-run cutout</button>}
@@ -309,10 +309,23 @@ function AudioTab({ p, c }: { p: Project; c: Clip }) {
       <label className="ed-row two"><span>Normalize loudness</span><input type="checkbox" checked={fx.normalize} onChange={e => setFx({ normalize: e.target.checked })} /></label>
       {processing && <div className="ed-note">Processing audio… the preview switches to the processed sound when it's ready.</div>}
     </Sec>
+    <StemSec c={c} />
     <Sec title="Voice changer">
       <div className="ed-tiles">{[["", "None"] as [string, string], ...voices].map(([id, name]) => <button key={id || "none"} className={fx.voice === id ? "on" : ""} onClick={() => setFx({ voice: id })}>{name}</button>)}</div>
     </Sec>
   </>;
+}
+
+function StemSec({ c }: { c: Clip }) {
+  const st = stemState(c.media ?? "");
+  return <Sec title="AI vocal isolation">
+    <div className="ed-note">Separates voice from music with MDX-Net (offline, GPU). The result goes on an audio track and this clip is muted.</div>
+    {st ? <div><div className="ed-bar"><div style={{ width: `${Math.round(st.progress * 100)}%` }} /></div><div className="ed-note">{st.label}</div></div>
+      : <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <button className="eb sm solid" onClick={() => void isolate(c, "vocals")}>Isolate voice</button>
+        <button className="eb sm solid" onClick={() => void isolate(c, "instrumental")}>Remove vocals (karaoke)</button>
+      </div>}
+  </Sec>;
 }
 
 // ---------------------------------------------------------------- speed

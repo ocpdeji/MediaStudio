@@ -5,6 +5,7 @@ mod db;
 mod editmedia;
 mod editor_cmds;
 mod export;
+mod infer;
 mod jobs;
 mod media;
 mod models;

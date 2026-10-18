@@ -38,13 +38,16 @@ pub enum JobSpec {
     AiImage { provider: String, prompt: String, aspect: String, project: String },
     AiVideo { provider: String, prompt: String, aspect: String, seconds: u32, image: Option<String>, project: String },
     StockDownload { url: String, name: String },
+    Matte { path: String },
+    Separate { path: String },
 }
 impl JobSpec {
     fn kind(&self) -> &'static str {
         match self { JobSpec::Quick { .. } => "export", JobSpec::Join { .. } => "join", JobSpec::ExtractAudio { .. } => "audio", JobSpec::Proxy { .. } => "proxy", JobSpec::Render { .. } => "render",
             JobSpec::Convert { .. } => "convert", JobSpec::ImageBatch { .. } => "images", JobSpec::CopyTo { .. } => "copy", JobSpec::Upscale { .. } => "upscale", JobSpec::Hashes { .. } => "analyse",
             JobSpec::Optimize { .. } => "prepare", JobSpec::AudioFx { .. } => "audiofx", JobSpec::Reverse { .. } => "reverse", JobSpec::Stabilize { .. } => "stabilize",
-            JobSpec::Transcribe { .. } => "captions", JobSpec::InstallModel { .. } => "download", JobSpec::Tts { .. } => "voiceover", JobSpec::AiImage { .. } | JobSpec::AiVideo { .. } => "ai", JobSpec::StockDownload { .. } => "stock" }
+            JobSpec::Transcribe { .. } => "captions", JobSpec::InstallModel { .. } => "download", JobSpec::Tts { .. } => "voiceover", JobSpec::AiImage { .. } | JobSpec::AiVideo { .. } => "ai", JobSpec::StockDownload { .. } => "stock",
+            JobSpec::Matte { .. } => "cutout", JobSpec::Separate { .. } => "separate" }
     }
 }
 
@@ -435,6 +438,42 @@ fn execute(ctx: &Ctx, c: &Connection, id: i64, spec: &JobSpec, cancel: &Arc<Atom
                 let p = ops::write_atomic(&dir, &format!("ai-video-{}.{}", db::now_ms(), g.ext), &g.bytes, false)?;
                 crate::editor_cmds::allow_path(&ctx.app, &p);
                 out.outputs.push(p.to_string_lossy().into_owned());
+            }
+            JobSpec::Matte { path } => {
+                let src = PathBuf::from(path);
+                let info = editmedia::info(&ctx.cache_dir, &src)?;
+                let dir = ctx.cache_dir.join("mattes"); std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+                let base = crate::infer::cache_name(&src, "matte");
+                let mut stage = |p: f64, s: &str| { progress(p); let _ = s; };
+                let target = if info.kind == "image" {
+                    let t = dir.join(base.with_extension("png"));
+                    if !t.is_file() {
+                        // decode through the optimized copy for formats image-rs can't read (HEIC…)
+                        let decodable = if info.playable { src.clone() } else { info.optimized.clone().map(PathBuf::from).ok_or("The photo is still being prepared — try again in a moment.")? };
+                        let tmp = t.with_extension("partial.png");
+                        crate::infer::matte_image(&ctx.data_dir, &decodable, &tmp)?;
+                        std::fs::rename(&tmp, &t).map_err(|e| e.to_string())?;
+                    }
+                    t
+                } else {
+                    let t = dir.join(base.with_extension("mp4"));
+                    if !t.is_file() {
+                        crate::infer::matte_video(&ctx.data_dir, &src, info.width.max(16) as u32, info.height.max(16) as u32, info.fps_num, info.fps_den, info.duration_us, &t, cancel, &mut stage)?;
+                    }
+                    t
+                };
+                crate::editor_cmds::allow_path(&ctx.app, &target);
+                out.outputs.push(target.to_string_lossy().into_owned());
+                out.notes.push(format!("Background removed on {}", crate::infer::backend()));
+            }
+            JobSpec::Separate { path } => {
+                let src = PathBuf::from(path);
+                let dir = ctx.cache_dir.join("stems"); std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+                let base = crate::infer::cache_name(&src, "stem");
+                let (v, i) = (dir.join(format!("{}-vocals.wav", base.display())), dir.join(format!("{}-instrumental.wav", base.display())));
+                if !v.is_file() || !i.is_file() { crate::infer::separate(&ctx.data_dir, &src, &v, &i, cancel, &mut |p, _| progress(p))?; }
+                for p in [&v, &i] { crate::editor_cmds::allow_path(&ctx.app, p); out.outputs.push(p.to_string_lossy().into_owned()); }
+                out.notes.push(format!("Vocals separated on {}", crate::infer::backend()));
             }
             JobSpec::StockDownload { url, name } => {
                 let dir = ctx.projects_root.parent().map(|p| p.join("Stock")).ok_or("no stock folder")?;
