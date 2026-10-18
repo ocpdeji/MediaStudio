@@ -1,124 +1,121 @@
 # Media Studio Pro
 
-A local-first Windows app for browsing, reviewing and editing photos, video and audio. It grew out of the
-single-file `media-previewer.html` (kept in `legacy/`). No account, no cloud, no telemetry.
+A CapCut-style video editor and media library for Windows that runs **entirely on your PC** — no account, no
+watermark, no upload. Free offline AI (captions, background removal, voiceovers, vocal isolation, noise reduction)
+plus *bring-your-own-key* access to cloud AI (OpenAI, Gemini, Claude, Kling, Veo, Sora, ElevenLabs …).
 
-**Architecture:** Tauri 2 (Rust) + React/TypeScript UI · SQLite catalogue · FFmpeg media engine ·
-optional Real-ESRGAN for AI upscaling. See [docs/ADR-001-architecture.md](docs/ADR-001-architecture.md).
+**Architecture:** Tauri 2 (Rust) + React/TypeScript · WebGL2 compositor shared by preview and export · FFmpeg
+(NVENC/QSV/AMF/x264/x265/ProRes/AV1) · ONNX Runtime + DirectML for on-device AI · whisper.cpp · Piper · SQLite.
+See [docs/ADR-001-architecture.md](docs/ADR-001-architecture.md) and [docs/ADR-002-editor-engine.md](docs/ADR-002-editor-engine.md).
 
 ## Install
 
-- **Installer:** `MediaStudioPro_<ver>_x64-setup.exe` — per-user install, no admin rights, Start-menu and
-  desktop shortcuts, uninstall from *Settings → Apps*.
-- **Portable:** unzip `MediaStudioPro-<ver>-portable-x64.zip` and run `MediaStudioPro.exe`.
+| | |
+|---|---|
+| **Installer (recommended)** | `Media Studio Pro_<ver>_x64-setup.exe` — installs for your user only (no admin), adds Start-menu/desktop shortcuts and an uninstaller, and keeps one fixed location so updates replace the app cleanly. |
+| **Portable** | Unzip `MediaStudioPro-<ver>-portable-x64.zip` anywhere (USB drive too) and run `MediaStudioPro.exe`. Same app; no shortcuts or uninstaller. |
 
-Both include FFmpeg. Windows 11 already has the WebView2 runtime; on Windows 10 the installer fetches it.
+Both include FFmpeg and the DirectML GPU runtime. Projects and settings are shared between them
+(`Documents\Media Studio Pro\Projects`, `%APPDATA%\com.mediastudiopro.app`). Windows 11 already has WebView2.
+The installer isn't code-signed yet, so SmartScreen may say “Windows protected your PC” → **More info → Run anyway**.
 
-## What it does
+## Editor (CapCut layout)
 
-**Library & review**
-- Add folders (button, Ctrl+O or drag onto the window); files are catalogued, never moved or copied.
-- Folder tree, smart lists (videos, images, audio, favourites, 4★+, rejected, recent), collections,
-  tags, saved searches.
-- Background scanning detects new, changed, moved and missing files; moved files keep their ratings and tags.
-- Virtualized grid/list (sizes adjustable) with cached thumbnails and audio waveforms; visible items
-  load first.
-- Search across names, folders, tags and notes, with filters for type, rating, colour label,
-  orientation, resolution, duration, size, date, extension and missing files.
-- Sort by name, folder, type, dates, size, duration, resolution, aspect ratio or rating.
-- Review with ★ ratings, favourite, reject and six colour labels, plus notes. Range and multi-select,
-  invert selection, compare up to 4 side by side (synced zoom/playback), slideshow.
-- Similar/duplicate finder (perceptual hash; results are approximate).
-- Inspector: codec, frame rate, bitrate, audio streams, subtitles, HDR flag, EXIF with a GPS warning.
-- Video player with SMPTE timecode, frame stepping at the file's real frame rate, speed, loop and volume.
-  It can save or copy the exact frame (via FFmpeg), and offers a one-click H.264 proxy for codecs the
-  preview can't play (HEVC without the Windows extension, ProRes, some MKV/AVI/MXF files).
+**Home** — Create project (name + ratio 16:9 / 9:16 / 1:1 / 4:5 / 21:9 …), project grid with covers, search, sort,
+rename (double-click the name), duplicate, delete to Recycle Bin, show in folder, templates. Autosave every second
+with rolling backups; damaged project files fall back to the last good backup.
 
-**Quick video tools** (right-click → *Quick trim / export / remove logo*)
-- Trim with in/out points (lossless keyframe cut or re-encode), speed, rotate/flip, crop,
-  brightness/contrast/saturation, fades, volume, mute, loudness normalisation.
-- Logo/watermark removal: FFmpeg delogo with a real processed-frame preview. Blur-area option.
-- Presets: match source, web, archive H.265, 9:16, 1:1, 16:9, 4K, ProRes, WebM. GPU encoders
-  (NVENC/QSV/AMF) are used only after a real test encode succeeds.
-- Join clips: lossless when they match, otherwise re-encoded with a reason given; silence is added
-  for clips without audio.
-- Batch convert/compress, audio extraction (MP3/AAC/WAV/FLAC/Opus), batch image
-  resize/rotate/convert, contact sheets, copy/move to folder, CSV/JSON selection manifest.
+**Left panel tabs** — Media (import, your library, free stock from Pexels/Pixabay) · Audio (16 built-in sound
+effects, Freesound, Jamendo music, text-to-speech, extract audio) · Text (24 styled presets, templates) · Stickers
+(emoji sets, shapes, your PNG/GIF) · Effects (62 GPU effects in 9 groups) · Transitions (123) · Captions · Filters
+(44 looks + import `.cube` LUTs) · Adjustment layers · Templates · AI.
 
-**Image editor** (E on an image)
-- Non-destructive adjustments: exposure, brightness, contrast, highlights, shadows, levels, gamma,
-  temperature/tint, saturation, vibrance, sharpen, noise reduction, blur, vignette, black & white.
-  Before/after split.
-- Crop with aspect presets, straighten with auto-crop, rotate/flip, high-quality resize, canvas size.
-- Retouch: Smart fill (texture-matched seamless patch), Smooth fill, Clone/heal (Alt+click source),
-  Blur, Pixelate.
-- Text and image layers with opacity, rotation, blend modes and ordering.
-- Encoded once at full resolution as PNG/JPEG/WebP. Saving a copy is the default; overwriting the
-  original needs confirmation.
+**Player** — live GPU preview of the exact export, drag / scale / rotate layers on the canvas with centre snapping,
+SMPTE timecode, frame stepping, ratio switcher, full screen.
 
-**Timeline** (Ctrl+3)
-- Multiple video and audio tracks, plus image, title and colour clips. Drag, trim, split, ripple delete,
-  duplicate, freeze frame and snapping.
-- Track lock, hide, mute and reorder; timeline zoom.
-- Clip inspector: speed, volume, fades, cross-dissolve/fade transitions, fit, scale, position,
-  rotation, opacity, picture-in-picture and colour.
-- Integer-µs timing with exact rational frame rates; undo/redo; `.msproj` projects with relinking of
-  missing media; autosave and crash recovery.
-- Live preview (approximate). The export is rendered frame-exactly by FFmpeg, either the whole
-  timeline or a marked range.
+**Properties (right)** — Video: transform with keyframes, opacity & 14 blend modes, crop with ratio presets, six mask
+shapes (feather, invert), chroma key with spill suppression, AI background removal, stabilise, per-clip effects ·
+Audio: volume (keyframes, up to +12 dB), fades, noise reduction, voice enhance, loudness normalise, 24 voice
+changers, AI voice isolation / karaoke · Speed: 0.1–100×, speed curves (montage, hero, bullet, ramps), keep pitch ·
+Animation: 29 in/out + 10 loop animations, letter-by-letter text animations · Adjust: exposure, contrast, highlights,
+shadows, temperature, tint, saturation, vibrance, hue, sharpen, vignette, grain, fade, filter intensity · Text: any
+installed or bundled font, size, colour, gradient, stroke, shadow/glow, background box, spacing, case, presets ·
+Captions: word highlight (colour, box, pop, reveal), apply style/position to all.
 
-**Enhance**
-- Conventional Lanczos resize, or AI super-resolution (Real-ESRGAN, Vulkan GPU with CPU fallback),
-  2×/3×/4×, for images and full videos (every frame; audio kept).
-- Before/after comparison. The model is downloaded only after you confirm in Settings.
+**Timeline** — magnetic main track, overlays, text/sticker, effect, filter, adjustment and audio tracks; thumbnail
+strips and waveforms; drag to move/trim with snapping; split (Ctrl+B), delete left/right of playhead (Q/W), ripple
+delete, duplicate, copy/paste, freeze frame, reverse, mirror, rotate, markers, extract audio, voiceover recording,
+marquee select, Ctrl+wheel zoom, lock/hide/mute tracks, 300-step undo.
 
-**Jobs & safety**
-- Persistent background queue with progress, ETA, cancel, retry and limited concurrency. Jobs interrupted
-  by a crash are marked *interrupted*.
-- Every output is checked with ffprobe before success is reported. Outputs go to temp files first, with
-  unique names; nothing is overwritten silently. Deletes go to the Recycle Bin. Batch renames preview
-  conflicts first and can be undone.
+**Export** — what you see is what you get (same GPU renderer), frame-exact decoding, 480p–8K, 24–60 fps, H.264 / HEVC
+/ AV1 / ProRes, three quality levels, hardware encoding (NVENC/QSV/AMF verified at start-up), audio-only (MP3/WAV/
+M4A/FLAC) and SRT/VTT/TXT captions. Every file is checked with ffprobe before success is reported.
 
-## Keyboard
+**HEVC / iPhone / ProRes footage** — anything the preview engine can't decode gets a one-time GPU-encoded H.264 working
+copy automatically (in the cache); exports still read the original.
 
-`←→↑↓` move · `1–5` rate · `0` clear · `F` favourite · `X` reject · `6–9` colour labels · `Enter` loupe ·
-`C` compare · `P` slideshow · `E` edit · `F2` rename · `Del` Recycle Bin · `Ctrl+K` command palette ·
-`?` all shortcuts. In the timeline: `Space` play · `S` split · `Shift+Del` ripple delete · `I/O` export range.
+## AI
+
+| Feature | Engine | Where it runs |
+|---|---|---|
+| Auto captions, transcripts, translation to English | whisper.cpp (Base / Small / Large-v3 Turbo) with word-exact DTW timing | Your GPU (CUDA) or CPU |
+| Translate captions to any language, AI scripts | Any chat model with your key — or free local Ollama / LM Studio | Your choice |
+| Remove background (video / photo) | Robust Video Matting · IS-Net | Your GPU (DirectML) |
+| Vocal isolation / remove vocals | MDX-Net (UVR Voc FT) | Your GPU (DirectML) |
+| Voiceovers | Piper (11 free voices) · OpenAI · ElevenLabs | Offline or your key |
+| Noise reduction | RNNoise | Offline |
+| Remove silences | FFmpeg silence detection | Offline |
+| AI images | OpenAI GPT-Image · Gemini Imagen · Flux (Replicate / fal) | Your key |
+| AI video | Kling (Replicate / fal) · Google Veo · OpenAI Sora | Your key |
+| Upscale 2–4× | Real-ESRGAN | Your GPU (Vulkan) |
+
+Free models download from **Home → AI models & keys** (one click: “Download all”) or on first use. API keys are
+stored in **Windows Credential Manager**, never in project files, and are sent only to that provider.
+
+## Media library
+
+Add folders (files stay where they are), virtualised grid/list, ratings, flags, colour labels, tags, collections,
+smart filters, duplicate finder, compare, slideshow, batch rename/convert, quick trim & logo removal, photo editor
+and Enhance workspace.
+
+## Keyboard (editor)
+
+`Space` play · `←/→` frame (Shift: 1 s) · `Ctrl+B` split · `Q`/`W` delete left/right · `Del` delete · `Ctrl+C/V`
+copy/paste · `Ctrl+D` duplicate · `Ctrl+Z / Ctrl+Shift+Z` undo/redo · `M` marker · `S` snapping · `+/−` zoom ·
+`Ctrl+S` save · `Ctrl+E` export · `?` all shortcuts.
 
 ## Build from source
 
-Requirements: Node 20+, Rust (stable, MSVC), Visual Studio C++ Build Tools, FFmpeg on PATH (or pass `-Source`).
+Requirements: Node 20+, Rust stable (MSVC), Visual Studio C++ Build Tools, FFmpeg on PATH (or pass `-Source`).
 
 ```powershell
 npm install
-powershell -ExecutionPolicy Bypass -File scripts\prepare-ffmpeg.ps1   # copies FFmpeg + licence into the bundle
-npm run tauri dev                                                     # development
-npm run tauri build                                                   # → src-tauri\target\release\bundle\nsis\*.exe
-powershell -ExecutionPolicy Bypass -File scripts\package-portable.ps1 # → portable ZIP
+node scripts/fetch-fonts.mjs                                            # bundled OFL/Apache fonts (once)
+powershell -ExecutionPolicy Bypass -File scripts\prepare-ffmpeg.ps1    # FFmpeg + licence into the bundle
+cd src-tauri; cargo build; cd ..                                        # downloads ONNX Runtime/DirectML
+powershell -ExecutionPolicy Bypass -File scripts\prepare-runtime.ps1   # DirectML.dll into the bundle
+npm run tauri dev                                                       # development
+npm run tauri build                                                     # → src-tauri\target\release\bundle\nsis\*.exe
+powershell -ExecutionPolicy Bypass -File scripts\package-portable.ps1  # → portable ZIP
 ```
 
 ## Tests
 
 ```powershell
-cd src-tauri; cargo test        # 25 Rust tests incl. a real FFmpeg pipeline test (trim/delogo, join, timeline render, audio, cancel)
-npx vitest run                  # timeline model: frame math, split/trim/ripple, snapping, undo, project files
+cd src-tauri; cargo test     # 43 Rust tests: projects, playability, optimize args, audio mix, voice FX, Whisper parsing,
+                             # model catalogue/unzip safety, BYOK host allow-list, file-access allow-list, STFT round-trip,
+                             # real FFmpeg pipeline (trim/delogo/join/render/audio/cancel) …
+npx vitest run               # 26 tests: timeline model (frame maths, split/trim/ripple, speed curves, keyframes, transitions…)
+node e2e/editor-ui.mjs       # real mouse/keyboard editing in the running dev app
+node e2e/shaders.mjs         # compiles all 62 effects + 123 transitions on the GPU
 ```
 
-`e2e/drive.mjs` drives the real app through WebView2 DevTools for end-to-end checks. Start the dev app with
-`$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9222"`; never enable this in production.
+## Known limitations
 
-## Known limitations (v0.1)
-
-- The timeline preview is approximate (HTML video + canvas): transforms and colour are close, but the
-  export is authoritative. Preview frame stepping isn't guaranteed frame-exact; frame capture and export are.
-- No folder watching yet; use Rescan (F5) after changing files outside the app.
-- Not included yet: layer masks, curves UI, keyframed animation, subtitle burn-in, audio waveform
-  editing on the timeline, noise reduction for audio, background removal, face restoration,
-  transcription, scene detection, RAW development (RAW files get FFmpeg/embedded previews only), HEIC
-  depends on the FFmpeg build.
-- Video logo removal (delogo) interpolates from the surroundings. It works on small static marks over
-  simple backgrounds and can leave a soft patch on busy footage. Only edit media you own or are
-  authorised to modify.
-- The bundled FFmpeg is the large "full" GPL build (~217 MB per exe). Run `prepare-ffmpeg.ps1 -Source <dir>`
-  with a smaller GPL/LGPL build to shrink the installer.
-- The installer isn't code-signed, so Windows SmartScreen may warn on first run.
+- Live preview of speed **curves** and **reversed** clips seeks frame by frame (smooth on short clips); export is exact.
+- Background removal is tuned for people in video (RVM); for objects use photos (IS-Net) or chroma key.
+- Cloud AI quality, price and content rules are the provider's; generation can take minutes for video.
+- Stock/music items may require credit or be non-commercial — the licence is shown when you add them.
+- Not yet: multi-camera, nested sequences, motion tracking, beat detection, AI avatars/lip-sync (available through
+  Replicate/fal models with your key), cloud collaboration (by design: everything stays local).
+- Unsigned installer (SmartScreen warning on first run).

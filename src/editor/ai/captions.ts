@@ -18,28 +18,29 @@ export function placeCaptions(p: Project, clips: Clip[], replace: boolean): Proj
   return q;
 }
 
-export async function autoCaptions(o: { language: string; model: string; translate: boolean; style: CaptionStyle; replace: boolean; onProgress: (p: number, label: string) => void }): Promise<number> {
-  const { p } = useEd.getState(); if (!p) return 0;
+/** Transcribe the timeline's audio mix (so cuts, speed and mutes are respected); times are timeline µs. */
+export async function transcribeTimeline(o: { language: string; model: string; translate: boolean; onProgress: (p: number, label: string) => void }): Promise<{ language: string; segments: Segment[] }> {
+  const { p } = useEd.getState(); if (!p) throw new Error("No project open");
   const plan = audioPlan(p);
-  if (!plan.segs.length) throw new Error("There's no audio on the timeline to caption.");
+  if (!plan.segs.length) throw new Error("There's no audio on the timeline to transcribe.");
   const env = await ed.env();
   o.onProgress(0.02, "Mixing the timeline audio…");
   const wav = await ed.renderAudio(plan, `${env.cache}\\speech`, `mix-${Date.now()}.wav`);
-  const job = await ed.enqueue({ type: "transcribe", spec: { path: wav, in_us: 0, out_us: 0, language: o.language, translate: o.translate, model: o.model, offset_us: 0 } }, "Auto captions");
+  const job = await ed.enqueue({ type: "transcribe", spec: { path: wav, in_us: 0, out_us: 0, language: o.language, translate: o.translate, model: o.model, offset_us: 0 } }, "Transcribe");
   return new Promise((resolve, reject) => watchJob(job, {
     progress: pr => o.onProgress(0.05 + pr * 0.9, pr < 0.1 ? "Preparing speech…" : `Transcribing… ${Math.round(pr * 100)}%`),
     fail: e => reject(new Error(e)),
-    done: async out => {
-      try {
-        const raw = new TextDecoder().decode(await ed.readCache(out[0]));
-        const j = JSON.parse(raw) as { language: string; segments: Segment[] };
-        const clips = captionClips(j.segments, o.style, useEd.getState().p!.height > useEd.getState().p!.width ? 0.18 : 0.32);
-        useEd.getState().commit(pp => placeCaptions(pp, clips, o.replace));
-        o.onProgress(1, `Added ${clips.length} captions (${j.language})`);
-        resolve(clips.length);
-      } catch (e) { reject(e); }
-    },
+    done: async out => { try { resolve(JSON.parse(new TextDecoder().decode(await ed.readCache(out[0])))); } catch (e) { reject(e); } },
   }));
+}
+
+export async function autoCaptions(o: { language: string; model: string; translate: boolean; style: CaptionStyle; replace: boolean; onProgress: (p: number, label: string) => void }): Promise<number> {
+  const j = await transcribeTimeline(o);
+  const p = useEd.getState().p!;
+  const clips = captionClips(j.segments, o.style, p.height > p.width ? 0.18 : 0.32);
+  useEd.getState().commit(pp => placeCaptions(pp, clips, o.replace));
+  o.onProgress(1, `Added ${clips.length} captions (${j.language})`);
+  return clips.length;
 }
 
 // ---------------------------------------------------------------- SRT / VTT

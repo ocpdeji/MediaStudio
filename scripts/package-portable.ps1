@@ -8,6 +8,7 @@ $stage = Join-Path $rel "portable\MediaStudioPro-$ver-portable"
 Remove-Item (Join-Path $rel "portable") -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force (Join-Path $stage "ffmpeg") | Out-Null
 Copy-Item (Join-Path $rel "MediaStudioPro.exe") $stage
+Copy-Item (Join-Path $root "src-tauri\bin\DirectML.dll") $stage
 Copy-Item (Join-Path $root "src-tauri\ffmpeg\*") (Join-Path $stage "ffmpeg")
 Copy-Item (Join-Path $root "THIRD_PARTY_NOTICES.md"), (Join-Path $root "README.md") $stage
 "Media Studio Pro $ver (portable)`r`nRun MediaStudioPro.exe. Requires Windows 10/11 with the WebView2 runtime (built into Windows 11).`r`nYour catalogue and settings are stored in %APPDATA%\com.mediastudiopro.app; thumbnails in %LOCALAPPDATA%\com.mediastudiopro.app." | Set-Content (Join-Path $stage "PORTABLE.txt")

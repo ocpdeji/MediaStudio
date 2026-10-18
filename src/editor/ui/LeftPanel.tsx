@@ -434,12 +434,13 @@ function TemplatesPanel() {
 function AiPanel() {
   const [sub, setSub] = useState("tools");
   return <>
-    <SubNav value={sub} onChange={setSub} items={[["tools", "AI tools"], ["image", "AI image"], ["video", "AI video"], ["script", "AI script"]]} />
+    <SubNav value={sub} onChange={setSub} items={[["tools", "AI tools"], ["shorts", "Long → Shorts"], ["image", "AI image"], ["video", "AI video"], ["script", "AI script"]]} />
     <div className="ed-content">
       {sub === "tools" && <AiTools go={setSub} />}
       {sub === "image" && <AiGen kind="image" />}
       {sub === "video" && <AiGen kind="video" />}
       {sub === "script" && <AiScript />}
+      {sub === "shorts" && <ShortsPanel />}
     </div>
   </>;
 }
@@ -457,6 +458,7 @@ function AiTools({ go }: { go: (s: string) => void }) {
     {tool(<ImageIcon size={20} color="#60a5fa" />, "AI image", "Generate images (OpenAI, Gemini, Flux…)", () => go("image"))}
     {tool(<Film size={20} color="#f472b6" />, "AI video", "Text/image → video (Kling, Veo, Sora…)", () => go("video"))}
     {tool(<Type size={20} color="#34d399" />, "AI script", "Write a video script with any AI model", () => go("script"))}
+    {tool(<Film size={20} color="#22d3ee" />, "Long video → Shorts", "Auto-pick highlights into 9:16 projects with captions", () => go("shorts"))}
     {tool(<Sparkles size={20} color="#fbbf24" />, "AI upscale", "Sharpen low-res clips 2–4× (Enhance workspace)", () => window.dispatchEvent(new Event("msp-open-enhance")))}
   </div>;
 }
@@ -507,5 +509,28 @@ function AiScript() {
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><button className="eb sm solid" onClick={toText}>Add as captions</button><button className="eb sm solid" onClick={() => { navigator.clipboard.writeText(out); useEd.getState().setLeft("audio"); notify("Script copied — paste it into Text to speech", "info"); }}>Make voiceover</button></div>
     </>}
     <div className="ed-note">Free option: install Ollama (ollama.com) and pick “Ollama (local, free)”.</div>
+  </>;
+}
+
+function ShortsPanel() {
+  const [count, setCount] = useState(3); const [max, setMax] = useState(45); const [lang, setLang] = useState("auto");
+  const [provs, setProvs] = useState<{ id: string; name: string; has_key: boolean }[]>([]); const [prov, setProv] = useState("");
+  const [prog, setProg] = useState<{ p: number; label: string } | null>(null); const [made, setMade] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => { ed.providers().then(p => setProvs(p.filter(x => x.caps.includes("chat")))); }, []);
+  const run = async () => {
+    setMade([]);
+    try { const { makeShorts } = await import("../ai/shorts"); const r = await makeShorts({ count, maxSec: max, provider: prov || null, language: lang, onProgress: (p, label) => setProg({ p, label }) }); setMade(r); notify(`Created ${r.length} short${r.length === 1 ? "" : "s"} — find them on Home`, "ok"); }
+    catch (e) { notify(`Shorts failed: ${e instanceof Error ? e.message : e}`); }
+    finally { setProg(null); }
+  };
+  return <>
+    <div className="ed-note">Turns the current timeline into vertical 9:16 shorts: transcribes it, picks the strongest moments, centre-crops to fill the frame, and adds animated captions and a hook title. Each short becomes its own project.</div>
+    <div className="ed-row two"><span>How many</span><select value={count} onChange={e => setCount(+e.target.value)}>{[1, 2, 3, 4, 5, 6, 8, 10].map(n => <option key={n}>{n}</option>)}</select></div>
+    <div className="ed-row two"><span>Max length</span><select value={max} onChange={e => setMax(+e.target.value)}>{[30, 45, 60, 90].map(n => <option key={n} value={n}>{n} s</option>)}</select></div>
+    <div className="ed-row two"><span>Language</span><select value={lang} onChange={e => setLang(e.target.value)}>{LANGS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></div>
+    <div className="ed-row two"><span>Pick with</span><select value={prov} onChange={e => setProv(e.target.value)}><option value="">Automatic (speech density, offline)</option>{provs.map(p => <option key={p.id} value={p.id} disabled={!p.has_key}>{p.name}{p.has_key ? "" : " — add key"}</option>)}</select></div>
+    {prog ? <div><div className="ed-bar"><div style={{ width: `${Math.round(prog.p * 100)}%` }} /></div><div className="ed-note">{prog.label}</div></div>
+      : <button className="eb primary" style={{ width: "100%", marginTop: 8 }} onClick={run}><Film size={14} />Create shorts</button>}
+    {made.map(m => <div key={m.id} className="ed-card" style={{ aspectRatio: "auto", padding: 10, marginTop: 8, justifyContent: "space-between" }}><span>{m.name}</span><button className="eb sm solid" onClick={() => void useEd.getState().close().then(() => useEd.getState().open(m.id))}>Open</button></div>)}
   </>;
 }

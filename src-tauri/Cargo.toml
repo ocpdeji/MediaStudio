@@ -1,6 +1,6 @@
 [package]
 name = "media-studio-pro"
-version = "0.1.0"
+version = "0.2.0"
 description = "Media Studio Pro — media library, review and editing"
 authors = ["Media Studio Pro"]
 edition = "2024"
