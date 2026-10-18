@@ -123,12 +123,13 @@
 .ed-clip .cv { position: absolute; inset: 0; width: 100%; height: 100%; }
 .ed-clip .nm { position: absolute; left: 6px; top: 3px; right: 6px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 2px #000; display: flex; gap: 5px; align-items: center; pointer-events: none; }
 .ed-clip .tag { font-size: 9.5px; background: rgba(0,0,0,.55); border-radius: 3px; padding: 0 4px; }
-.ed-clip .trim { position: absolute; top: 0; bottom: 0; width: 8px; cursor: ew-resize; z-index: 3; }
+.ed-clip .trim { position: absolute; top: 22px; bottom: 0; width: 8px; cursor: ew-resize; z-index: 4; }
+.ed-lane:not(.main) .ed-clip .trim, .ed-clip .trim.l { top: 0; }
 .ed-clip .trim.l { left: 0; } .ed-clip .trim.r { right: 0; }
 .ed-clip.sel .trim { background: rgba(255,255,255,.85); } .ed-clip.sel .trim::after { content: ""; position: absolute; left: 3px; top: 40%; height: 20%; width: 2px; background: #333; border-radius: 1px; }
 .ed-clip .kfd { position: absolute; bottom: 3px; width: 8px; height: 8px; margin-left: -4px; transform: rotate(45deg); background: #fff; border: 1px solid #222; pointer-events: none; }
 .ed-clip .prep { position: absolute; left: 0; right: 0; bottom: 0; height: 100%; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; font-size: 10.5px; }
-.ed-trans { position: absolute; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 5px; background: #fff; color: #111; display: flex; align-items: center; justify-content: center; z-index: 3; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.6); }
+.ed-trans { position: absolute; top: 2px; width: 18px; height: 18px; margin: 0 0 0 -9px; border-radius: 5px; background: #fff; color: #111; display: flex; align-items: center; justify-content: center; z-index: 3; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.6); }
 .ed-trans.add { opacity: 0; background: var(--e-panel3); color: var(--e-text); border: 1px solid #55555c; } .ed-lane:hover .ed-trans.add { opacity: .9; }
 .ed-playhead { position: absolute; top: 0; bottom: 0; width: 1px; background: #fff; z-index: 6; pointer-events: none; }
 .ed-playhead::before { content: ""; position: absolute; top: 0; left: -6px; width: 13px; height: 14px; background: #fff; clip-path: polygon(0 0, 100% 0, 100% 60%, 50% 100%, 0 60%); }
