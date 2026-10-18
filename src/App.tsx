@@ -81,7 +81,7 @@ export default function App() {
           if (j.status === "done") {
             window.dispatchEvent(new Event("msp-job-done"));
             // the editor reports its own background work (prepare, captions…) in context
-            const quiet = ["prepare", "audiofx", "reverse", "stabilize", "download", "captions", "voiceover", "ai", "stock"].includes(j.kind) && s.workspace === "editor";
+            const quiet = j.kind === "prepare" || (["audiofx", "reverse", "stabilize", "download", "captions", "voiceover", "ai", "stock"].includes(j.kind) && s.workspace === "editor");
             const out = j.result?.outputs?.[0];
             if (!quiet) s.toast(`Finished: ${j.title}${j.result?.notes?.length ? "\n" + j.result.notes.slice(0, 2).join("\n") : ""}`, "ok", out ? { label: "Show file", run: () => api.resolveMedia(out).then(a => (a ? api.reveal(a.id) : undefined)).catch(err => s.toast(errText(err), "error")) } : undefined);
           } else if (j.status === "failed") s.toast(`Failed: ${j.title}\n${j.error ?? ""}`, "error", { label: "Details", run: () => s.setDialog({ kind: "jobs" }) });

@@ -59,7 +59,7 @@ fn add_library(app: AppHandle, s: State<AppState>, path: String) -> R<i64> {
         let libs = db::list_libraries(&c).map_err(e2s)?;
         if let Some(l) = libs.iter().find(|l| p.starts_with(&l.path)) { return Err(format!("This folder is already part of the library “{}”.", l.name)); }
         let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| ps.clone());
-        let tx = c.transaction().map_err(e2s)?;
+        let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(e2s)?;
         tx.execute("INSERT INTO libraries(path,name,added_at) VALUES(?,?,?)", params![ps, name, now_ms()]).map_err(e2s)?;
         let id = tx.last_insert_rowid();
         // a parent folder absorbs libraries that were inside it (annotations kept)
@@ -166,7 +166,7 @@ fn list_tags(s: State<AppState>) -> R<Vec<(i64, String, i64)>> {
 #[tauri::command]
 fn tag_assets(s: State<AppState>, ids: Vec<i64>, name: String, remove: bool) -> R<()> {
     let name = name.trim(); if name.is_empty() || name.len() > 64 { return Err("Tag names must be 1–64 characters".into()); }
-    let mut c = s.conn(); let tx = c.transaction().map_err(e2s)?;
+    let mut c = s.conn(); let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(e2s)?;
     tx.execute("INSERT OR IGNORE INTO tags(name) VALUES(?)", [name]).map_err(e2s)?;
     let tid: i64 = tx.query_row("SELECT id FROM tags WHERE name=?", [name], |r| r.get(0)).map_err(e2s)?;
     for id in ids { if remove { tx.execute("DELETE FROM asset_tags WHERE asset_id=? AND tag_id=?", [id, tid]) } else { tx.execute("INSERT OR IGNORE INTO asset_tags VALUES(?,?)", [id, tid]) }.map_err(e2s)?; }
@@ -181,7 +181,7 @@ fn list_collections(s: State<AppState>) -> R<Vec<(i64, String, i64)>> {
 }
 #[tauri::command]
 fn collection_edit(s: State<AppState>, action: String, id: Option<i64>, name: Option<String>, ids: Vec<i64>) -> R<i64> {
-    let mut c = s.conn(); let tx = c.transaction().map_err(e2s)?;
+    let mut c = s.conn(); let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(e2s)?;
     let cid = match action.as_str() {
         "create" => { let n = name.unwrap_or_default(); let n = n.trim(); if n.is_empty() { return Err("Name required".into()); }
             tx.execute("INSERT INTO collections(name,created_at) VALUES(?,?)", params![n, now_ms()]).map_err(e2s)?; tx.last_insert_rowid() }

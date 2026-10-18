@@ -125,7 +125,7 @@ pub fn apply(c: &mut Connection, renames: &[(i64, String)]) -> Result<RenameResu
     } else {
         for (id, s, t) in jobs { match std::fs::rename(&s, &t) { Ok(_) => done.push((id, s, t)), Err(e) => errors.push(format!("{}: {e}", s.display())) } }
     }
-    let tx = c.transaction().map_err(|e| e.to_string())?;
+    let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e| e.to_string())?;
     // park paths first so swapped/chained names never violate the UNIQUE(path) constraint mid-update
     for (id, _, _) in &done { tx.execute("UPDATE assets SET path='<renaming>'||id WHERE id=?", [id]).map_err(|e| e.to_string())?; }
     for (id, s, t) in &done {

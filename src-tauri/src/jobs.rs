@@ -71,14 +71,16 @@ pub struct Ctx { pub app: AppHandle, pub db_path: PathBuf, pub cache_dir: PathBu
 
 #[derive(Clone)]
 pub struct Jobs { inner: Arc<Inner> }
-struct Inner { ctx: Ctx, cancels: Mutex<HashMap<i64, Arc<AtomicBool>>>, signal: (Mutex<bool>, Condvar), concurrency: AtomicUsize, running: AtomicUsize }
+struct Inner { ctx: Ctx, cancels: Mutex<HashMap<i64, Arc<AtomicBool>>>, signal: (Mutex<bool>, Condvar), concurrency: AtomicUsize, running: AtomicUsize, lanes: Mutex<HashMap<&'static str, usize>> }
+
+fn lane(kind: &str) -> &'static str { match kind { "prepare" => "prepare", "download" | "stock" => "download", _ => "main" } }
 
 impl Jobs {
     pub fn start(ctx: Ctx, concurrency: usize) -> Jobs {
         if let Ok(c) = db::open(&ctx.db_path) {
             let _ = c.execute("UPDATE jobs SET status='interrupted', error='The app closed while this job was running. Retry to run it again.', finished_at=? WHERE status='running'", [now_ms()]);
         }
-        let j = Jobs { inner: Arc::new(Inner { ctx, cancels: Mutex::new(HashMap::new()), signal: (Mutex::new(false), Condvar::new()), concurrency: AtomicUsize::new(concurrency.clamp(1, 8)), running: AtomicUsize::new(0) }) };
+        let j = Jobs { inner: Arc::new(Inner { ctx, cancels: Mutex::new(HashMap::new()), signal: (Mutex::new(false), Condvar::new()), concurrency: AtomicUsize::new(concurrency.clamp(1, 8)), running: AtomicUsize::new(0), lanes: Mutex::new(HashMap::new()) }) };
         let me = j.clone();
         std::thread::spawn(move || me.dispatch());
         j
@@ -110,15 +112,27 @@ impl Jobs {
         loop {
             { let (m, cv) = &self.inner.signal; let g = m.lock().unwrap(); let (mut g, _) = cv.wait_timeout(g, std::time::Duration::from_millis(1000)).unwrap(); *g = false; }
             let Ok(c) = db::open(&self.inner.ctx.db_path) else { continue };
-            while self.inner.running.load(Ordering::SeqCst) < self.inner.concurrency.load(Ordering::Relaxed) {
-                let next: Option<(i64, String)> = c.query_row("SELECT id,params FROM jobs WHERE status='queued' ORDER BY id LIMIT 1", [], |r| Ok((r.get(0)?, r.get(1)?))).optional().ok().flatten();
-                let Some((id, p)) = next else { break };
+            // Separate lanes so a preview never waits behind a 500 MB model download or a long export:
+            // "prepare" (interactive previews) and "download" (network-bound) have their own slots.
+            loop {
+                let cap = |lane: &str| match lane { "prepare" => 2, "download" => 2, _ => self.inner.concurrency.load(Ordering::Relaxed) };
+                let busy = self.inner.lanes.lock().unwrap().clone();
+                let queued: Vec<(i64, String, String)> = c.prepare("SELECT id,params,kind FROM jobs WHERE status='queued' ORDER BY CASE kind WHEN 'prepare' THEN 0 ELSE 1 END, id LIMIT 200")
+                    .and_then(|mut st| st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect()).unwrap_or_default();
+                let Some((id, p, kind)) = queued.into_iter().find(|(_, _, k)| { let l = lane(k); busy.get(l).copied().unwrap_or(0) < cap(l) }) else { break };
                 if c.execute("UPDATE jobs SET status='running', started_at=?, progress=0 WHERE id=? AND status='queued'", params![now_ms(), id]).unwrap_or(0) == 0 { continue; }
+                let l = lane(&kind);
+                *self.inner.lanes.lock().unwrap().entry(l).or_insert(0) += 1;
                 self.inner.running.fetch_add(1, Ordering::SeqCst);
                 let flag = Arc::new(AtomicBool::new(false));
                 self.inner.cancels.lock().unwrap().insert(id, flag.clone());
                 let me = self.clone();
-                std::thread::spawn(move || { me.run(id, &p, flag); me.inner.running.fetch_sub(1, Ordering::SeqCst); me.inner.cancels.lock().unwrap().remove(&id); me.wake(); });
+                std::thread::spawn(move || {
+                    me.run(id, &p, flag);
+                    me.inner.running.fetch_sub(1, Ordering::SeqCst);
+                    if let Some(n) = me.inner.lanes.lock().unwrap().get_mut(l) { *n = n.saturating_sub(1); }
+                    me.inner.cancels.lock().unwrap().remove(&id); me.wake();
+                });
             }
         }
     }

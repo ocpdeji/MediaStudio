@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as I from "lucide-react";
 import { api, Asset, Detail, errText, fileUrl, thumbUrl } from "../lib/api";
+import { ed } from "../editor/api";
+import { watchJob } from "../editor/store";
 import { useStore } from "../lib/store";
 import { clamp, fmtSize, timecode } from "../lib/format";
 import { setField } from "../lib/actions";
@@ -71,8 +73,28 @@ function VideoPane({ a, detail, sync, paneId, label }: { a: Asset; detail: Detai
   const [muted, setMuted] = useState(() => localStorage.getItem("msp.muted") !== "0"), [vol, setVol] = useState(() => +(localStorage.getItem("msp.vol") ?? 1));
   const [useProxy, setUseProxy] = useState<string | null>(null);
   const fpsN = a.fps_num ?? 30, fpsD = a.fps_den ?? 1, frame = fpsD / fpsN;
-  useEffect(() => { setFailed(null); setUseProxy(null); setT(0); setPlaying(false); }, [a.id]);
-  useEffect(() => { if (detail?.proxy && failed) { setUseProxy(detail.proxy); setFailed(null); } }, [detail?.proxy, failed]);
+  const [prep, setPrep] = useState<number | null>(null);
+  const [checked, setChecked] = useState(false);
+  useEffect(() => { setFailed(null); setUseProxy(null); setT(0); setPlaying(false); setPrep(null); setChecked(false); }, [a.id]);
+  // Formats the preview engine can't decode (HEVC, ProRes, AC-3 audio…) get a hardware-encoded H.264 copy once,
+  // automatically, shared with the editor. The next videos in the list are prepared in the background too.
+  useEffect(() => {
+    if (a.kind !== "video" && a.kind !== "audio") return;
+    let alive = true;
+    const prepare = async (path: string, mine: boolean) => {
+      const i = await ed.info(path);
+      if (i.playable) { if (mine && alive) setChecked(true); return; }
+      if (i.optimized) { if (mine && alive) { setUseProxy(i.optimized); setFailed(null); } return; }
+      const job = await ed.optimize(path);
+      if (!mine) return;
+      if (alive) setPrep(0);
+      watchJob(job, { progress: p => alive && setPrep(p), done: out => { if (alive) { setPrep(null); setUseProxy(out[0] ?? null); setFailed(null); } }, fail: e => { if (alive) { setPrep(null); setFailed(`Couldn't prepare a preview: ${e}`); } } });
+    };
+    prepare(a.path, true).catch(e => { if (alive) setChecked(true); if (alive && /not found/i.test(String(e))) { setPrep(null); setFailed("This file was moved, renamed or deleted since the last scan. Press F5 to rescan the folder."); } });
+    const list = useStore.getState().assets, idx = list.findIndex(x => x.id === a.id);
+    for (const n of list.slice(idx + 1, idx + 3)) if (n.kind === "video") prepare(n.path, false).catch(() => {});
+    return () => { alive = false; };
+  }, [a.id]); // eslint-disable-line
   useEffect(() => { try { localStorage.setItem("msp.muted", muted ? "1" : "0"); localStorage.setItem("msp.vol", String(vol)); } catch { /* storage unavailable */ } if (v.current) { v.current.muted = muted; v.current.volume = vol; } }, [muted, vol]);
   useEffect(() => { if (v.current) v.current.playbackRate = rate; }, [rate]);
   useEffect(() => {
@@ -104,7 +126,7 @@ function VideoPane({ a, detail, sync, paneId, label }: { a: Asset; detail: Detai
     } catch (e) { st.toast(errText(e), "error"); }
   };
   const proxy = async () => { await api.enqueue({ type: "proxy", asset_id: a.id }, `Proxy · ${a.name}`); st.toast("Creating a compatible preview proxy — it will load automatically when ready."); };
-  const src = useProxy ? fileUrl(useProxy) : fileUrl(a.path);
+  const src = useProxy ? fileUrl(useProxy) : checked && prep === null ? fileUrl(a.path) : undefined;
   const isAudio = a.kind === "audio";
   return (
     <div className="vpane" style={{ display: "flex", flexDirection: "column" }} ref={box}>
@@ -115,12 +137,13 @@ function VideoPane({ a, detail, sync, paneId, label }: { a: Asset; detail: Detai
           onTimeUpdate={e => setT(e.currentTarget.currentTime)} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
           onWaiting={() => setBuffering(true)} onPlaying={() => setBuffering(false)} onCanPlay={() => setBuffering(false)}
           onError={() => setFailed(`The preview engine can’t play this ${a.ext.toUpperCase()} file${detail?.vcodec ? ` (${detail.vcodec})` : ""}.`)} />
-        {buffering && !failed && <div className="overlay-msg" style={{ background: "transparent" }}><I.Loader2 className="spin" size={28} /></div>}
-        {failed && <div className="overlay-msg" onClick={e => e.stopPropagation()}><I.FileVideo size={30} /><b>{failed}</b>
+        {buffering && !failed && prep === null && <div className="overlay-msg" style={{ background: "transparent" }}><I.Loader2 className="spin" size={28} /></div>}
+        {prep !== null && <div className="overlay-msg"><I.Loader2 className="spin" size={26} /><b>Preparing preview… {Math.round(prep * 100)}%</b><span className="hint" style={{ color: "#bbb" }}>This format (e.g. HEVC/H.265) gets a fast GPU-encoded copy once; the original file is untouched.</span></div>}
+        {failed && prep === null && <div className="overlay-msg" onClick={e => e.stopPropagation()}><I.FileVideo size={30} /><b>{failed}</b>
           <span className="hint" style={{ color: "#bbb" }}>Common for HEVC/H.265 without the Windows extension, ProRes, some MKV/AVI/MXF files. The original is fine — only the preview is affected.</span>
           {detail?.proxy ? <button className="btn primary" onClick={() => { setUseProxy(detail.proxy); setFailed(null); }}>Play the proxy</button> : <button className="btn primary" onClick={proxy}><I.Gauge size={15} /> Create preview proxy</button>}
         </div>}
-        {useProxy && <div className="vlabel" style={{ top: "auto", bottom: 10 }}>Playing proxy (preview quality)</div>}
+        {useProxy && <div className="vlabel" style={{ top: "auto", bottom: 10 }}>Playing optimized copy</div>}
       </div>
       <div className="transport">
         <button className="btn ghost icon sm" onClick={toggle} title="Play / pause (Space)">{playing ? <I.Pause size={16} /> : <I.Play size={16} />}</button>

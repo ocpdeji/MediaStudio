@@ -452,11 +452,11 @@ export function Toasts() {
 }
 
 const TOUR = [
-  { t: "Welcome to Media Studio Pro", b: "A fast, local library and editor for your photos, videos and audio. Your files stay where they are — the app builds a private catalogue on this PC." },
-  { t: "1 · Add a folder", b: "Use “Add folder” (top right) or drag a folder onto the window. Thumbnails and metadata are generated in the background while you work." },
-  { t: "2 · Review fast", b: "Arrow keys to move, 1–5 to rate, F favourite, X reject, Enter for a big preview, C to compare picks side by side. Right-click anything for more." },
-  { t: "3 · Edit & export", b: "E opens the image editor or the timeline. Quick edit trims, removes logos and exports videos without leaving the library. All exports run as background jobs." },
-  { t: "4 · Find anything", b: "Ctrl+K opens the command palette — every feature is searchable there. Press ? for all shortcuts." },
+  { t: "Welcome to Media Studio Pro", b: "A CapCut-style video editor plus a fast media library — fully on your PC. No account, no watermark, nothing uploaded unless you add your own AI key." },
+  { t: "1 · Create a project", b: "On Home, click “Create project”, name it and pick a ratio (16:9 YouTube, 9:16 TikTok/Reels…). Projects autosave every second and appear on Home with a cover." },
+  { t: "2 · Edit like CapCut", b: "Import media on the left, drag it to the timeline. Text, stickers, effects, transitions, filters, captions and AI tools are the tabs across the top. Select a clip to edit it on the right." },
+  { t: "3 · AI that runs locally", b: "Auto captions, background removal, voiceovers and noise reduction use free offline models (Home → AI models & keys). Add your own key for OpenAI, Gemini, Claude, Kling and more." },
+  { t: "4 · Export", b: "Export renders exactly what you see, up to 8K, using your graphics card. HEVC/iPhone clips are prepared automatically. Press ? in the editor for all shortcuts." },
 ];
 export function Tour({ onClose }: { onClose: () => void }) {
   const [i, setI] = useState(0);
@@ -464,7 +464,7 @@ export function Tour({ onClose }: { onClose: () => void }) {
   return (
     <div className="backdrop"><div className="dialog narrow" role="dialog">
       <div className="dialog-b" style={{ padding: 26 }}>
-        <span className="hero-icon">{[<I.Sparkles key={0} size={30} />, <I.FolderPlus key={1} size={30} />, <I.Star key={2} size={30} />, <I.Scissors key={3} size={30} />, <I.Command key={4} size={30} />][i]}</span>
+        <span className="hero-icon">{[<I.Sparkles key={0} size={30} />, <I.FolderPlus key={1} size={30} />, <I.Scissors key={2} size={30} />, <I.Bot key={3} size={30} />, <I.Download key={4} size={30} />][i]}</span>
         <h2 style={{ margin: "16px 0 6px" }}>{TOUR[i].t}</h2><div className="hint" style={{ fontSize: 13.5 }}>{TOUR[i].b}</div>
       </div>
       <div className="dialog-f"><span className="dim grow">{i + 1} / {TOUR.length}</span><button className="btn ghost" onClick={done}>Skip</button>

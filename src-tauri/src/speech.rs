@@ -51,10 +51,15 @@ pub fn parse_whisper_json(j: &serde_json::Value, offset_us: i64) -> Vec<Segment>
         let to = s["offsets"]["to"].as_i64().unwrap_or(0) * 1000 + offset_us;
         let mut words: Vec<Word> = vec![];
         if let Some(toks) = s["tokens"].as_array() {
-            for t in toks {
+            let toks: Vec<&serde_json::Value> = toks.iter().filter(|t| { let x = t["text"].as_str().unwrap_or(""); !x.is_empty() && !x.starts_with("[_") && !x.starts_with("<|") }).collect();
+            // DTW alignment (t_dtw, in 10 ms units) is exact; plain offsets are interpolated across the segment.
+            let dtw = |t: &serde_json::Value| t["t_dtw"].as_i64().filter(|v| *v >= 0).map(|v| v * 10_000 + offset_us);
+            for (i, t) in toks.iter().enumerate() {
                 let txt = t["text"].as_str().unwrap_or("");
-                if txt.is_empty() || txt.starts_with("[_") || txt.starts_with("<|") { continue; }
-                let (a, b) = (t["offsets"]["from"].as_i64().unwrap_or(0) * 1000 + offset_us, t["offsets"]["to"].as_i64().unwrap_or(0) * 1000 + offset_us);
+                let (a, b) = match dtw(t) {
+                    Some(a) => (a, toks.get(i + 1).and_then(|n| dtw(n)).unwrap_or(to).max(a)),
+                    None => (t["offsets"]["from"].as_i64().unwrap_or(0) * 1000 + offset_us, t["offsets"]["to"].as_i64().unwrap_or(0) * 1000 + offset_us),
+                };
                 let starts_word = txt.starts_with(' ') || words.is_empty();
                 let punct_only = txt.trim().chars().all(|c| c.is_ascii_punctuation());
                 if starts_word && !(punct_only && !words.is_empty()) { words.push(Word { start_us: a, end_us: b.max(a), text: txt.trim().to_string() }); }
@@ -65,6 +70,8 @@ pub fn parse_whisper_json(j: &serde_json::Value, offset_us: i64) -> Vec<Segment>
         let text = s["text"].as_str().unwrap_or("").trim().to_string();
         if text.is_empty() && words.is_empty() { continue; }
         let text = if text.is_empty() { words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>().join(" ") } else { text };
+        // with aligned words the segment spans exactly the speech (no leading silence)
+        let (from, to) = match (words.first(), words.last()) { (Some(f), Some(l)) => (f.start_us.max(from), l.end_us.min(to).max(f.start_us)), _ => (from, to) };
         out.push(Segment { start_us: from, end_us: to.max(from), text, words });
     }
     out
@@ -85,12 +92,18 @@ pub fn transcribe(data: &Path, work: &Path, spec: &TranscribeSpec, cancel: &Arc<
     export::run_ffmpeg(&a, (spec.out_us - spec.in_us).max(1), None, cancel, &mut |p| progress(p * 0.1)).map_err(|e| if e.contains("matches no streams") { "This clip has no audio to transcribe.".to_string() } else { e })?;
     let threads = std::thread::available_parallelism().map(|n| n.get().clamp(2, 8)).unwrap_or(4).to_string();
     let mut last_err = String::new();
-    for (i, exe) in engines.iter().enumerate() {
+    // DTW word alignment preset matching the model (accurate word timings for karaoke captions)
+    let mf = model.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let dtw = if mf.contains("large-v3-turbo") { Some("large.v3.turbo") } else if mf.contains("small") { Some("small") } else if mf.contains("base") { Some("base") } else if mf.contains("medium") { Some("medium") } else { None };
+    let attempts: Vec<(usize, &PathBuf, Option<&str>)> = engines.iter().enumerate().flat_map(|(i, e)| [(i, e, dtw), (i + 10, e, None)]).collect();
+    for (i, exe, dtw) in attempts {
         let of = work.join(format!("out{i}"));
         let mut c = media::command(exe);
         c.current_dir(exe.parent().unwrap());
         c.args(["-m", &model.to_string_lossy(), "-f", &wav.to_string_lossy(), "-l", &spec.language, "-t", &threads, "-ojf", "-of", &of.to_string_lossy(), "-pp", "-np"]);
         if spec.translate { c.arg("-tr"); }
+        // DTW alignment is silently skipped while flash attention is on (whisper.cpp default)
+        if let Some(d) = dtw { c.args(["-dtw", d, "-nfa"]); }
         c.stdout(Stdio::null()).stderr(Stdio::piped());
         let mut child = match c.spawn() { Ok(ch) => ch, Err(e) => { last_err = e.to_string(); continue; } };
         let err = child.stderr.take().unwrap();

@@ -59,7 +59,7 @@ pub fn walk(root: &Path, excluded: &[String], mut on_progress: impl FnMut(usize)
 /// file that went missing inherits its rating/flags/tags/collections.
 pub fn reconcile(c: &mut Connection, lib_id: i64, found: Vec<Found>) -> rusqlite::Result<ScanStats> {
     let mut st = ScanStats { library_id: lib_id, found: found.len(), ..Default::default() };
-    let tx = c.transaction()?;
+    let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let mut existing: HashMap<String, (i64, i64, i64, bool)> = HashMap::new();
     {
         let mut q = tx.prepare("SELECT id,path,size,mtime,missing FROM assets WHERE library_id=?")?;

@@ -69,7 +69,7 @@ pub fn migrate(c: &mut Connection) -> rusqlite::Result<(i32, i32)> {
     for (i, sql) in MIGRATIONS.iter().enumerate() {
         let v = i as i32 + 1;
         if v <= from { continue; }
-        let tx = c.transaction()?;
+        let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         tx.execute_batch(sql)?;
         tx.pragma_update(None, "user_version", v)?;
         tx.commit()?;
@@ -260,7 +260,7 @@ pub fn folders(c: &Connection, library_id: i64) -> rusqlite::Result<Vec<(String,
 
 pub fn set_field_many(c: &mut Connection, ids: &[i64], field: &str, value: Value) -> rusqlite::Result<usize> {
     let col = match field { "rating" => "rating", "favorite" => "favorite", "rejected" => "rejected", "color" => "color", "notes" => "notes", _ => return Ok(0) };
-    let tx = c.transaction()?;
+    let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let mut n = 0;
     { let mut st = tx.prepare(&format!("UPDATE assets SET {col}=? WHERE id=?"))?;
       for id in ids { n += st.execute(params![value, id])?; } }
